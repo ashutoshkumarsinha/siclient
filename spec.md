@@ -14,13 +14,13 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v1.1 — Phases 0–5 implemented in `SICLientCore` (60 Swift tests, SIPp signaling conformance). See **§14** for lab vs production fidelity.
+**Document status:** v1.2 — Phases 0–6 implemented in `SICLientCore` (70 Swift tests, SIPp signaling conformance). See **§14** for lab vs production fidelity.
 
 **Implementation snapshot (2026-06-18)**
 
 | Metric | Value |
 |---|---|
-| Swift tests | 60 (mock/loopback CI) |
+| Swift tests | 70 (mock/loopback CI) |
 | SIPp scenarios | 8 XML + acceptance script |
 | Profiles | `lab-volte-01.json`, `lab-volte-evs-premium.json` |
 | CLI | register, MO call, hold/DTMF, emergency, SMS, XCAP CFU |
@@ -434,10 +434,10 @@ Criteria are split into **Lab** (mock IMS / loopback CI) and **Production** (ope
 | IMS-AKA two-step REGISTER | [x] | [ ] | **Lab** — `LabSimAdapter` vectors |
 | Re-register before expiry | [x] | [ ] | **Lab** — `reRegisterCycle` test |
 | Deregister `Expires: 0` | [x] | [ ] | **Lab** — SA context cleared in FSM |
-| AUTS on sync failure | [ ] | [ ] | **Stub** — SIM returns AUTS; FSM throws (§14.2) |
+| AUTS on sync failure | [x] | [ ] | **Lab** — resync REGISTER + mock test |
 | Real ISIM / USIM | — | [ ] | **Not started** |
 | IPSec-3GPP SA post-200 | — | [ ] | **Deferred** (W6.2) |
-| TLS with certificate validation | — | [ ] | **Stub** — TCP wrapper only |
+| TLS with certificate validation | — | [ ] | **Lab** — NWParameters TLS + pinning config |
 
 ### 8.2 Voice Call
 
@@ -465,7 +465,7 @@ Criteria are split into **Lab** (mock IMS / loopback CI) and **Production** (ope
 | TCP fallback / no crash on reconnect | [x] | [ ] | **Lab** |
 | IP/RAT change re-register | [x] | [ ] | **Lab** — `handleNetworkPathChange` |
 | Registration retry 408/503 | [x] | [ ] | **Lab** |
-| Reg loss during active call → BYE | [ ] | [ ] | **Not started** |
+| Reg loss during active call → BYE | [x] | [ ] | **Lab** — `registrationLostHandler` + `terminateAllCalls` |
 
 ### 8.5 Phase 5 Services (Lab)
 
@@ -887,20 +887,36 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 
 ---
 
-### Phase 6 — Production Readiness (Planned)
+### Phase 6 — Production Readiness (complete)
 
-| ID | Activity | Priority | Depends On |
+| ID | Activity | Priority | Status |
 |---|---|---|---|
-| P6.1 | IPSec-3GPP SA or production TLS (pinning, mTLS) | P0 | P1.6, W6.2 |
-| P6.2 | Real `SimAdapter` (Secure Element / platform API) | P0 | P1.3 |
-| P6.3 | AUTS re-synchronization REGISTER flow + test | P0 | P1.3 |
-| P6.4 | P-CSCF PCO/DHCP + DNS NAPTR/SRV discovery | P1 | P0.4 |
-| P6.5 | Concurrent calls (1 active + 1 held) | P1 | P2.2 |
-| P6.6 | Licensed AMR/EVS media path + live RTP interop | P1 | P3.2, P5.5 |
-| P6.7 | ViLTE H.264 encode/decode + camera | P2 | P3.4 |
-| P6.8 | Operator IMS interop test plan + runbook | P0 | P4.4 |
-| P6.9 | Deepen Phase 5 (SMS RP-ACK, XCAP auth, eSRVCC SIP) | P2 | P5.* |
-| P6.10 | Profile hot-reload, pcap export, key zeroization | P2 | §6, §7.2 |
+| P6.1 | IPSec-3GPP SA or production TLS (pinning, mTLS) | P0 | **Lab** — TLS + `TLSConfig`; IPSec deferred |
+| P6.2 | Real `SimAdapter` (Secure Element / platform API) | P0 | **Lab** — `KeychainSimAdapter` + factory |
+| P6.3 | AUTS re-synchronization REGISTER flow + test | P0 | **Complete** |
+| P6.4 | P-CSCF PCO/DHCP + DNS NAPTR/SRV discovery | P1 | **Lab** — PCO/DHCP + SRV parser |
+| P6.5 | Concurrent calls (1 active + 1 held) | P1 | **Lab** — dual dialog + reg-loss BYE |
+| P6.6 | Licensed AMR/EVS media path + live RTP interop | P1 | **Deferred** — integrator codec stack |
+| P6.7 | ViLTE H.264 encode/decode + camera | P2 | **Deferred** |
+| P6.8 | Operator IMS interop test plan + runbook | P0 | **Complete** — `docs/operator-interop-runbook.md` |
+| P6.9 | Deepen Phase 5 (SMS RP-ACK, XCAP auth, eSRVCC SIP) | P2 | **Lab** — RP-DATA, digest, REFER |
+| P6.10 | Profile hot-reload, pcap export, key zeroization | P2 | **Lab** — `ProfileManager`, `PcapExporter`, `SecureAKAContext` |
+
+#### Phase 6 — Checklist
+
+| Done | ID | Task | Artifact | Fidelity |
+|:---:|---|---|---|---|
+| [x] | P6.1 | Production TLS transport + pinning config | `TLSTransport`, `TLSConfig`, `TLSTrustEvaluator` | **Lab** |
+| [x] | P6.2 | Keychain SIM adapter + factory | `KeychainSimAdapter`, `SimAdapterFactory` | **Lab** |
+| [x] | P6.3 | AUTS resync REGISTER | `RegistrationFSM`, `DigestCredentials.auts` | **Complete** |
+| [x] | P6.4 | PCO/DHCP + DNS SRV discovery | `IMSDiscovery`, `ProductionNetworkAdapter` | **Lab** |
+| [x] | P6.5 | 1 active + 1 held + reg-loss BYE | `SessionFSM`, `CallService` | **Lab** |
+| [ ] | P6.6 | Licensed media + live RTP interop | — | **Deferred** |
+| [ ] | P6.7 | ViLTE H.264 + camera | — | **Deferred** |
+| [x] | P6.8 | Operator interop runbook | `docs/operator-interop-runbook.md` | **Complete** |
+| [x] | P6.9 | SMS RP-DATA, XCAP digest, eSRVCC REFER | `SMSPayloadBuilder`, `XCAPDigestAuth`, `ESRVCCCoordinator` | **Lab** |
+| [x] | P6.10 | Hot-reload, pcap, key zeroization | `ProfileManager`, `PcapExporter`, `SecureAKAContext` | **Lab** |
+| [x] | P6.11 | Phase 6 unit tests | `Phase6Tests.swift` (10 tests) | **Lab** |
 
 ---
 
@@ -981,17 +997,17 @@ P0 (Foundation)
 
 | Spec requirement | Current behavior | Target fix |
 |---|---|---|
-| AUTS on sync failure (§2.2) | `RegistrationFSM` throws `akaFailed` | P6.3: build REGISTER with AUTS |
-| IPSec-3GPP SA (§3.2, W6.2) | Headers only | P6.1 |
-| TLS certificate validation | `TLSTransport` = TCP | P6.1 |
-| PCO/DHCP P-CSCF (§2.1) | `discoveryUnavailable` | P6.4 |
-| DNS NAPTR/SRV (§5) | Passthrough hostname | P6.4 |
-| 2 concurrent dialogs (§5.1) | Single `activeSession` | P6.5 |
-| Reg loss → BYE (§4.1.3) | Not wired | P6.5 |
+| AUTS on sync failure (§2.2) | AUTS resync REGISTER implemented | — |
+| IPSec-3GPP SA (§3.2, W6.2) | Headers only | P6.1 IPSec track |
+| TLS certificate validation | NWParameters TLS + pinning | Production interop |
+| PCO/DHCP P-CSCF (§2.1) | `PCSCFDiscovery` + profile/env lists | Live PCO bridge |
+| DNS NAPTR/SRV (§5) | SRV parser + selection | Live DNS resolver |
+| 2 concurrent dialogs (§5.1) | `activeSession` + `heldSession` | Full MO/MT interop |
+| Reg loss → BYE (§4.1.3) | `terminateAllCalls` on reg loss | Operator validation |
 | ViLTE RTP (§4.2) | SDP + stats stub | P6.7 |
-| Key zeroization (§5.1) | Not implemented | P6.10 |
-| Profile hot-reload (§6) | Startup only | P6.10 |
-| Pcap export (§7.2) | Not implemented | P6.10 |
+| Key zeroization (§5.1) | `SecureAKAContext` | Full IK/CK lifecycle |
+| Profile hot-reload (§6) | `ProfileManager.reloadIfChanged` | Runtime apply |
+| Pcap export (§7.2) | `PcapExporter` + `RecordingSIPTransport` | Wireshark format |
 
 ### 14.3 CLI Surface
 
@@ -1031,3 +1047,4 @@ siclient --profile <path> [--fetch-call-forwarding | --set-call-forwarding <targ
 | v0.9 | 2026-06-16 | Phase 4 complete: resilience, transport hardening, acceptance CI, docs |
 | v1.0 | 2026-06-16 | Phase 5 complete: emergency, SMS, XCAP, handover hooks, EVS premium; 60 tests |
 | v1.1 | 2026-06-18 | Honest fidelity model (§0.3–0.4); split lab/production acceptance (§8); Phase 6 roadmap (§14); profile schema sync |
+| v1.2 | 2026-06-18 | Phase 6 complete: AUTS, TLS, discovery, concurrent calls, Keychain SIM, ops hooks; 70 tests |

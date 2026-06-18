@@ -95,6 +95,7 @@ public enum SessionError: Error, Sendable, CustomStringConvertible {
     case inviteCancelled
     case mediaFailed(String)
     case holdNotAllowed
+    case concurrentCallLimit
 
     public var description: String {
         switch self {
@@ -109,6 +110,7 @@ public enum SessionError: Error, Sendable, CustomStringConvertible {
         case .inviteCancelled: return "Call setup cancelled"
         case .mediaFailed(let reason): return "Media session failed: \(reason)"
         case .holdNotAllowed: return "Hold is only allowed on established calls"
+        case .concurrentCallLimit: return "Maximum concurrent dialogs reached (1 active + 1 held)"
         }
     }
 }

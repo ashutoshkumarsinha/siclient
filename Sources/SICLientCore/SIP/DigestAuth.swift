@@ -29,6 +29,8 @@ public struct DigestCredentials: Sendable, Equatable {
     public var nc: String?
     public var qop: String?
     public var opaque: String?
+    /// IMS-AKA synchronization failure token (TS 33.203). When set, `response` is omitted.
+    public var auts: String?
 
     public func headerValue() -> String {
         var parts = [
@@ -36,8 +38,12 @@ public struct DigestCredentials: Sendable, Equatable {
             #"realm="\#(realm)""#,
             #"nonce="\#(nonce)""#,
             #"uri="\#(uri)""#,
-            #"response="\#(response)""#,
         ]
+        if let auts {
+            parts.append(#"auts="\#(auts)""#)
+        } else {
+            parts.append(#"response="\#(response)""#)
+        }
         if let algorithm { parts.append("algorithm=\(algorithm)") }
         if let cnonce { parts.append(#"cnonce="\#(cnonce)""#) }
         if let nc { parts.append("nc=\(nc)") }
@@ -69,9 +75,12 @@ public enum DigestAuthParser {
             let username = params["username"],
             let realm = params["realm"],
             let nonce = params["nonce"],
-            let uri = params["uri"],
-            let response = params["response"]
+            let uri = params["uri"]
         else { return nil }
+
+        let response = params["response"] ?? ""
+        let auts = params["auts"]
+        guard !response.isEmpty || auts != nil else { return nil }
 
         return DigestCredentials(
             username: username,
@@ -83,7 +92,8 @@ public enum DigestAuthParser {
             cnonce: params["cnonce"],
             nc: params["nc"],
             qop: params["qop"],
-            opaque: params["opaque"]
+            opaque: params["opaque"],
+            auts: params["auts"]
         )
     }
 
@@ -198,5 +208,9 @@ public enum IMSChallengeDecoder {
 
     public static func responseBase64(_ res: Data) -> String {
         res.base64EncodedString()
+    }
+
+    public static func autsBase64(_ auts: Data) -> String {
+        auts.base64EncodedString()
     }
 }

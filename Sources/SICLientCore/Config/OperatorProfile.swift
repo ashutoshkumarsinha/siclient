@@ -21,11 +21,36 @@ public struct PCSCFConfig: Codable, Sendable, Equatable {
     public var mode: PCSCFDiscoveryMode
     public var address: String?
     public var port: Int?
+    /// DNS domain for NAPTR/SRV P-CSCF discovery (defaults to home_domain).
+    public var dnsDomain: String?
+    /// Static PCO-provided P-CSCF list (host:port) for lab/production bridge.
+    public var pcoAddresses: [String]?
+    /// DHCP option 120 / IMS P-CSCF list for lab bridge.
+    public var dhcpAddresses: [String]?
 
-    public init(mode: PCSCFDiscoveryMode, address: String? = nil, port: Int? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case address
+        case port
+        case dnsDomain = "dns_domain"
+        case pcoAddresses = "pco_addresses"
+        case dhcpAddresses = "dhcp_addresses"
+    }
+
+    public init(
+        mode: PCSCFDiscoveryMode,
+        address: String? = nil,
+        port: Int? = nil,
+        dnsDomain: String? = nil,
+        pcoAddresses: [String]? = nil,
+        dhcpAddresses: [String]? = nil
+    ) {
         self.mode = mode
         self.address = address
         self.port = port
+        self.dnsDomain = dnsDomain
+        self.pcoAddresses = pcoAddresses
+        self.dhcpAddresses = dhcpAddresses
     }
 }
 
@@ -39,9 +64,45 @@ public struct TransportConfig: Codable, Sendable, Equatable {
 
 public struct SecurityConfig: Codable, Sendable, Equatable {
     public var mechanism: SecurityMechanism
+    public var tls: TLSConfig
 
-    public init(mechanism: SecurityMechanism) {
+    enum CodingKeys: String, CodingKey {
+        case mechanism
+        case tls
+    }
+
+    public init(mechanism: SecurityMechanism, tls: TLSConfig = TLSConfig()) {
         self.mechanism = mechanism
+        self.tls = tls
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mechanism = try container.decode(SecurityMechanism.self, forKey: .mechanism)
+        tls = try container.decodeIfPresent(TLSConfig.self, forKey: .tls) ?? TLSConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mechanism, forKey: .mechanism)
+        try container.encode(tls, forKey: .tls)
+    }
+}
+
+public struct TLSConfig: Codable, Sendable, Equatable {
+    /// SHA-256 fingerprints of trusted server certificates (hex, lowercase, no colons).
+    public var pinnedCertificateSHA256: [String]
+    /// Skip certificate validation (lab/mock P-CSCF only).
+    public var allowInsecureLab: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case pinnedCertificateSHA256 = "pinned_cert_sha256"
+        case allowInsecureLab = "allow_insecure_lab"
+    }
+
+    public init(pinnedCertificateSHA256: [String] = [], allowInsecureLab: Bool = true) {
+        self.pinnedCertificateSHA256 = pinnedCertificateSHA256
+        self.allowInsecureLab = allowInsecureLab
     }
 }
 

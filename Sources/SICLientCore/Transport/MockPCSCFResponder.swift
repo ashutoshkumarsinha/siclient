@@ -3,6 +3,7 @@ import Foundation
 public final class MockPCSCFState: @unchecked Sendable {
     public var registered = false
     public var registerAttemptCount = 0
+    public var syncResyncPending = false
 
     public init() {}
 }
@@ -34,20 +35,35 @@ public enum MockPCSCFResponder {
         }
 
         if let auth = request.headers["Authorization"],
-           let creds = DigestAuthParser.parseCredentials(auth),
-           !creds.response.isEmpty,
-            validateCredentials(creds, profile: profile) {
-            state.registered = true
-            return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: expires)))
+           let creds = DigestAuthParser.parseCredentials(auth) {
+            if let auts = creds.auts, validateAUTS(auts, profile: profile) {
+                state.syncResyncPending = false
+                state.registered = true
+                return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: expires)))
+            }
+            if !creds.response.isEmpty, validateCredentials(creds, profile: profile) {
+                state.registered = true
+                return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: expires)))
+            }
         }
 
-        return SIPSerializer.serialize(.response(make401(for: request, profile: profile)))
+        return SIPSerializer.serialize(.response(make401(for: request, profile: profile, state: state)))
+    }
+
+    private static func validateAUTS(_ auts: String, profile: OperatorProfile) -> Bool {
+        guard
+            let labSim = profile.labSim,
+            let vector = labSim.akaVectors.first(where: { $0.auts != nil }),
+            let expected = Data(hexString: vector.auts ?? "")
+        else { return false }
+        guard let provided = Data(base64Encoded: auts) else { return false }
+        return provided == expected
     }
 
     private static func validateCredentials(_ creds: DigestCredentials, profile: OperatorProfile) -> Bool {
         guard
             let labSim = profile.labSim,
-            let vector = labSim.akaVectors.first,
+            let vector = labSim.akaVectors.first(where: { $0.auts == nil }) ?? labSim.akaVectors.first,
             let expected = Data(hexString: vector.res)
         else { return false }
 
@@ -55,8 +71,20 @@ public enum MockPCSCFResponder {
         return provided == expected
     }
 
-    private static func make401(for request: SIPRequest, profile: OperatorProfile) -> SIPResponse {
-        guard let labSim = profile.labSim, let vector = labSim.akaVectors.first else {
+    private static func make401(for request: SIPRequest, profile: OperatorProfile, state: MockPCSCFState) -> SIPResponse {
+        guard let labSim = profile.labSim else {
+            return SIPResponse(statusCode: 403, reasonPhrase: "Forbidden")
+        }
+
+        let vector: AKAVector
+        if state.syncResyncPending, let resync = labSim.akaVectors.first(where: { $0.auts == nil }) {
+            vector = resync
+        } else if let syncVector = labSim.akaVectors.first(where: { $0.auts != nil }), state.registerAttemptCount == 1 {
+            state.syncResyncPending = true
+            vector = syncVector
+        } else if let first = labSim.akaVectors.first {
+            vector = first
+        } else {
             return SIPResponse(statusCode: 403, reasonPhrase: "Forbidden")
         }
 

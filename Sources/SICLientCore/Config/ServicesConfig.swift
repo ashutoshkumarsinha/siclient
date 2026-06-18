@@ -21,15 +21,25 @@ public struct EmergencyConfig: Codable, Sendable, Equatable {
 public struct SMSConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var smscURI: String
+    public var use3GPPPayload: Bool
 
     enum CodingKeys: String, CodingKey {
         case enabled
         case smscURI = "smsc_uri"
+        case use3GPPPayload = "use_3gpp_payload"
     }
 
-    public init(enabled: Bool = false, smscURI: String = "sip:smsc@ims.example") {
+    public init(enabled: Bool = false, smscURI: String = "sip:smsc@ims.example", use3GPPPayload: Bool = false) {
         self.enabled = enabled
         self.smscURI = smscURI
+        self.use3GPPPayload = use3GPPPayload
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        smscURI = try container.decode(String.self, forKey: .smscURI)
+        use3GPPPayload = try container.decodeIfPresent(Bool.self, forKey: .use3GPPPayload) ?? false
     }
 }
 

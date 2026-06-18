@@ -54,7 +54,23 @@ public actor CallService {
         )
         let adapter = handoverAdapter ?? StubHandoverAdapter()
         self.handoverAdapter = adapter
-        self.handoverCoordinator = ESRVCCCoordinator(profile: profile, handoverAdapter: adapter, logger: logger)
+        self.handoverCoordinator = ESRVCCCoordinator(
+            profile: profile,
+            handoverAdapter: adapter,
+            transport: transport,
+            logger: logger,
+            sessionProvider: { [sessionFSM] in
+                await sessionFSM.activeSessionContext()
+            }
+        )
+
+        Task {
+            await registrationFSM.setRegistrationLostHandler { [weak self] in
+                guard let self else { return }
+                let context = await self.registrationFSM.registrationContext()
+                await self.sessionFSM.terminateAllCalls(registration: context)
+            }
+        }
     }
 
     public func register(expires: Int = 3600) async throws {
@@ -175,6 +191,10 @@ public actor CallService {
 
     public func activeSession() async -> SessionContext? {
         await sessionFSM.activeSessionContext()
+    }
+
+    public func heldSession() async -> SessionContext? {
+        await sessionFSM.heldSessionContext()
     }
 
     public func handleNetworkPathChange() async throws {

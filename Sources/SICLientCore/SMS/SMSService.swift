@@ -85,7 +85,11 @@ public actor SMSService {
             ? destination
             : "tel:\(destination)"
 
-        let message = SMSRequestBuilder.makeMESSAGE(
+        let body = profile.services.sms.use3GPPPayload
+            ? SMSPayloadBuilder.rpData(userData: text, destination: requestURI)
+            : Data(text.utf8)
+
+        var message = SMSRequestBuilder.makeMESSAGE(
             profile: profile,
             impu: impu,
             pani: pani,
@@ -96,6 +100,11 @@ public actor SMSService {
             text: text,
             securityAssociation: registration.securityAssociation
         )
+        message.body = body
+        message.headers.set("Content-Type", value: profile.services.sms.use3GPPPayload
+            ? "application/vnd.3gpp.sms"
+            : "text/plain")
+        message.headers.set("Content-Length", value: String(body.count))
 
         let transaction = ClientTransaction(transport: transport, logger: logger)
         let response = try await transaction.send(message) { (200 ... 299).contains($0.statusCode) }

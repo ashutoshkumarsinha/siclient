@@ -9,6 +9,8 @@ public actor RegistrationFSM {
     private var state: RegistrationState = .unregistered
     private var context = RegistrationContext()
     private var lastCredentials: DigestCredentials?
+    private var secureKeys = SecureAKAContext()
+    private var registrationLostHandler: (@Sendable () async -> Void)?
     private var refreshTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
@@ -24,6 +26,10 @@ public actor RegistrationFSM {
 
     public func currentState() -> RegistrationState { state }
     public func registrationContext() -> RegistrationContext { context }
+
+    public func setRegistrationLostHandler(_ handler: (@Sendable () async -> Void)?) {
+        registrationLostHandler = handler
+    }
 
     public func register(expires: Int = 3600) async throws {
         var attempt = 0
@@ -152,7 +158,8 @@ public actor RegistrationFSM {
 
         let credentials: DigestCredentials
         switch akaResult.status {
-        case .success(let res, _, _):
+        case .success(let res, let ik, let ck):
+            secureKeys.store(ik: ik, ck: ck)
             credentials = DigestCredentials(
                 username: impi,
                 realm: challenge.realm,
@@ -166,8 +173,21 @@ public actor RegistrationFSM {
                 opaque: challenge.opaque
             )
             lastCredentials = credentials
-        case .syncFailure:
-            throw RegistrationError.akaFailed("AUTS sync failure")
+        case .syncFailure(let auts):
+            credentials = DigestCredentials(
+                username: impi,
+                realm: challenge.realm,
+                nonce: challenge.nonce,
+                uri: "sip:\(profile.homeDomain)",
+                response: "",
+                algorithm: challenge.algorithm ?? "AKAv1-MD5",
+                cnonce: UUID().uuidString.replacingOccurrences(of: "-", with: ""),
+                nc: "00000001",
+                qop: challenge.qop ?? "auth",
+                opaque: challenge.opaque,
+                auts: IMSChallengeDecoder.autsBase64(auts)
+            )
+            // Do not cache AUTS credentials as reusable auth context.
         case .invalidAUTN:
             throw RegistrationError.akaFailed("invalid AUTN")
         }
@@ -219,6 +239,7 @@ public actor RegistrationFSM {
                 state = .unregistered
                 context.securityAssociation = nil
                 lastCredentials = nil
+                secureKeys.wipe()
             }
             throw RegistrationError.unexpectedStatus(response.statusCode)
         }
@@ -227,6 +248,7 @@ public actor RegistrationFSM {
             state = .unregistered
             context = RegistrationContext()
             lastCredentials = nil
+            secureKeys.wipe()
             await transport.close()
             logger.info("Deregistered from IMS")
             return
@@ -271,6 +293,11 @@ public actor RegistrationFSM {
     private func handleReregisterFailure(_ error: Error) {
         logger.warn("Re-registration failed", fields: ["error": String(describing: error)])
         state = .unregistered
+        secureKeys.wipe()
+        lastCredentials = nil
+        if let registrationLostHandler {
+            Task { await registrationLostHandler() }
+        }
         scheduleNetworkRecovery()
     }
 

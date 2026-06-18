@@ -21,7 +21,7 @@ public struct StubNetworkAdapter: NetworkAdapter {
             }
             return PCSCFEndpoint(host: host, port: port, transport: transport)
         case .pco, .dhcp:
-            throw NetworkAdapterError.discoveryUnavailable
+            return try PCSCFDiscovery.endpoint(from: profile, resolver: self)
         }
     }
 

@@ -8,9 +8,12 @@ public actor SessionFSM {
     private let mediaTransportFactory: (@Sendable () -> any RTPTransport)?
 
     private var activeSession: SessionContext?
+    private var heldSession: SessionContext?
     private var pendingInvite: SIPRequest?
     private var activeMedia: MediaSession?
+    private var heldMedia: MediaSession?
     private var activeVideo: VideoRTPSession?
+    private var heldVideo: VideoRTPSession?
     private var audioIODevice: AudioIODevice?
 
     public init(
@@ -28,6 +31,43 @@ public actor SessionFSM {
     }
 
     public func activeSessionContext() -> SessionContext? { activeSession }
+    public func heldSessionContext() -> SessionContext? { heldSession }
+
+    /// Test helper to inject active/held dialogs without full INVITE flow.
+    public func injectSessionsForTesting(active: SessionContext?, held: SessionContext?) {
+        activeSession = active
+        heldSession = held
+    }
+
+    public func terminateAllCalls(registration: RegistrationContext) async {
+        if var session = activeSession {
+            try? await terminate(session: &session, registration: registration)
+            activeSession = nil
+        }
+        if var session = heldSession {
+            try? await terminate(session: &session, registration: registration)
+            heldSession = nil
+        }
+        if let media = activeMedia {
+            await media.stop()
+            activeMedia = nil
+        }
+        if let media = heldMedia {
+            await media.stop()
+            heldMedia = nil
+        }
+        if let video = activeVideo {
+            await video.stop()
+            activeVideo = nil
+        }
+        if let video = heldVideo {
+            await video.stop()
+            heldVideo = nil
+        }
+        audioIODevice?.stop()
+        audioIODevice = nil
+        pendingInvite = nil
+    }
 
     public func mediaStats() async -> RTPStreamStats {
         await activeMedia?.stats() ?? RTPStreamStats()
@@ -81,6 +121,25 @@ public actor SessionFSM {
             throw SessionError.invalidDestination
         }
 
+        if heldSession != nil, activeSession != nil {
+            throw SessionError.concurrentCallLimit
+        }
+
+        if var existing = activeSession, existing.state == .established, heldSession == nil {
+            try await renegotiateMedia(
+                direction: .sendonly,
+                registration: registration,
+                session: &existing,
+                media: activeMedia
+            )
+            heldSession = existing
+            heldMedia = activeMedia
+            heldVideo = activeVideo
+            activeSession = nil
+            activeMedia = nil
+            activeVideo = nil
+        }
+
         let impus = try platform.sim.getIMPUList()
         guard let impu = registration.defaultIMPU ?? impus.first else {
             throw SessionError.notRegistered
@@ -97,7 +156,7 @@ public actor SessionFSM {
 
         var dialog = DialogContext()
         dialog.localCSeq = 1
-        let audioPort = profile.media.localRTPPort
+        let audioPort = heldSession != nil ? profile.media.localRTPPort + 2 : profile.media.localRTPPort
         var session = SessionContext(
             dialog: dialog,
             state: .inviting,
@@ -258,6 +317,23 @@ public actor SessionFSM {
         guard var session = activeSession, session.state == .established else {
             throw SessionError.holdNotAllowed
         }
+        try await renegotiateMedia(
+            direction: direction,
+            registration: registration,
+            session: &session,
+            media: activeMedia
+        )
+        session.mediaDirection = direction
+        activeSession = session
+        logger.info("Call media direction updated", fields: ["direction": direction.rawValue])
+    }
+
+    private func renegotiateMedia(
+        direction: MediaDirection,
+        registration: RegistrationContext,
+        session: inout SessionContext,
+        media: MediaSession?
+    ) async throws {
         let impu = session.localURI
         let pani = try platform.accessInfo.currentAccessInfo().paniHeaderValue
         let localIP = try platform.network.localIPAddress()
@@ -297,9 +373,7 @@ public actor SessionFSM {
         }
 
         session.mediaDirection = direction
-        await activeMedia?.setDirection(direction)
-        activeSession = session
-        logger.info("Call media direction updated", fields: ["direction": direction.rawValue])
+        await media?.setDirection(direction)
     }
 
     public func sendDTMF(_ digit: Character) async throws {
@@ -395,6 +469,23 @@ public actor SessionFSM {
         guard var session = activeSession else { throw SessionError.noActiveSession }
         try await terminate(session: &session, registration: registration)
         activeSession = nil
+        activeMedia = nil
+        activeVideo = nil
+
+        if var held = heldSession {
+            try await renegotiateMedia(
+                direction: .sendrecv,
+                registration: registration,
+                session: &held,
+                media: heldMedia
+            )
+            activeSession = held
+            activeMedia = heldMedia
+            activeVideo = heldVideo
+            heldSession = nil
+            heldMedia = nil
+            heldVideo = nil
+        }
     }
 
     public func handleIncomingInvite(
