@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  IMS deregister (Expires: 0) with SIP Digest authentication.
+
+  Requires prior digest credentials from a 401 challenge in this call flow.
+  Run via ./run-deregister.sh [host:port] after a successful registration session,
+  or use the combined register_deregister.xml scenario.
+
+  Manual:
+
+    sipp -sf deregister.xml -inf lab-volte-01.csv \
+      -au "001010123456789@ims.mnc001.mcc001.3gppnetwork.org" \
+      -ap "e19aa1c37ab954daa44fa2a52007" \
+      -auth_uri "sip:ims.mnc001.mcc001.3gppnetwork.org" \
+      <host>:<port> -m 1
+-->
+<scenario name="IMS Deregister">
+  <send retrans="500">
+    <![CDATA[
+      REGISTER sip:[field0] SIP/2.0
+      Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch];rport
+      Max-Forwards: 70
+      From: <[field1]>;tag=[pid]SIPpTag00[call_number]
+      To: <[field1]>
+      Call-ID: [call_id]
+      CSeq: 1 REGISTER
+      Contact: <[field1]>;expires=0;+g.3gpp.icsi-ref="urn:urn-7:3gpp-service.ims.icsi.mmtel"
+      Expires: 0
+      Supported: path, outbound, gruu
+      P-Preferred-Identity: [field1]
+      Security-Client: tls; port=5061
+      Authorization: Digest username="[field2]", realm="", nonce="", uri="sip:[field0]", response=""
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <recv response="401" auth="true" />
+
+  <send retrans="500">
+    <![CDATA[
+      REGISTER sip:[field0] SIP/2.0
+      Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch];rport
+      Max-Forwards: 70
+      From: <[field1]>;tag=[pid]SIPpTag00[call_number]
+      To: <[field1]>
+      Call-ID: [call_id]
+      CSeq: 2 REGISTER
+      Contact: <[field1]>;expires=0;+g.3gpp.icsi-ref="urn:urn-7:3gpp-service.ims.icsi.mmtel"
+      Expires: 0
+      Supported: path, outbound, gruu
+      P-Preferred-Identity: [field1]
+      Security-Client: tls; port=5061
+      [authentication]
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <recv response="200" />
+</scenario>

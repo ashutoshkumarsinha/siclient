@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  IMS-AKA two-step REGISTER with SIP Digest authentication.
+
+  Client (UAC) scenario — run against lab P-CSCF or pcscf_register_uas.xml:
+
+    ./run-register.sh [host:port]
+
+  Or manually:
+
+    sipp -sf register_aka.xml -inf lab-volte-01.csv \
+      -au "001010123456789@ims.mnc001.mcc001.3gppnetwork.org" \
+      -ap "e19aa1c37ab954daa44fa2a52007" \
+      -auth_uri "sip:ims.mnc001.mcc001.3gppnetwork.org" \
+      <host>:<port> -m 1
+
+  Fields (lab-volte-01.csv):
+    [field0] = home domain / registrar host
+    [field1] = default IMPU (sip URI)
+    [field2] = IMPI (Digest username)
+    [field3] = MD5 digest password (UAS verifyauth)
+-->
+<scenario name="IMS AKA Register">
+  <send retrans="500">
+    <![CDATA[
+      REGISTER sip:[field0] SIP/2.0
+      Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch];rport
+      Max-Forwards: 70
+      From: <[field1]>;tag=[pid]SIPpTag00[call_number]
+      To: <[field1]>
+      Call-ID: [call_id]
+      CSeq: 1 REGISTER
+      Contact: <[field1]>;expires=3600;+g.3gpp.icsi-ref="urn:urn-7:3gpp-service.ims.icsi.mmtel"
+      Expires: 3600
+      Supported: path, outbound, gruu
+      Allow: INVITE, ACK, OPTIONS, CANCEL, BYE, UPDATE, PRACK
+      P-Preferred-Identity: [field1]
+      P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
+      P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=234150999010203
+      Security-Client: tls; port=5061
+      Authorization: Digest username="[field2]", realm="", nonce="", uri="sip:[field0]", response=""
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <!-- auth="true" stores WWW-Authenticate for [authentication] on next send -->
+  <recv response="401" auth="true" />
+
+  <send retrans="500">
+    <![CDATA[
+      REGISTER sip:[field0] SIP/2.0
+      Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch];rport
+      Max-Forwards: 70
+      From: <[field1]>;tag=[pid]SIPpTag00[call_number]
+      To: <[field1]>
+      Call-ID: [call_id]
+      CSeq: 2 REGISTER
+      Contact: <[field1]>;expires=3600;+g.3gpp.icsi-ref="urn:urn-7:3gpp-service.ims.icsi.mmtel"
+      Expires: 3600
+      Supported: path, outbound, gruu
+      Allow: INVITE, ACK, OPTIONS, CANCEL, BYE, UPDATE, PRACK
+      P-Preferred-Identity: [field1]
+      P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
+      P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=234150999010203
+      Security-Client: tls; port=5061
+      [authentication]
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <recv response="200" />
+</scenario>

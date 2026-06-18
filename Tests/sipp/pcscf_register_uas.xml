@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  P-CSCF UAS — issues 401 SIP Digest (MD5) challenge and validates authenticated REGISTER.
+
+  Handles:
+    - Two-step digest (empty response -> 401 -> authenticated REGISTER)
+    - Pre-authenticated REGISTER (re-register / deregister with [authentication])
+
+    ./run-uas.sh [bind-ip] [port]
+-->
+<scenario name="P-CSCF REGISTER UAS (MD5 Digest)">
+  <label id="badauth"/>
+
+  <recv request="REGISTER" crlf="true">
+    <action>
+      <ereg regexp="response=&quot;([0-9a-f]{32})&quot;"
+            search_in="hdr" header="Authorization:" assign_to="digestresp" optional="true"/>
+      <verifyauth assign_to="authvalid" username="[field2]" password="[field3]" />
+    </action>
+  </recv>
+
+  <nop hide="true" test="digestresp" next="auth_branch" />
+  <nop hide="true" next="challenge" />
+
+  <label id="challenge"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 401 Unauthorized
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      WWW-Authenticate: Digest realm="[field0]", nonce="lab-nonce-0001", algorithm=MD5
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <recv request="REGISTER">
+    <action>
+      <verifyauth assign_to="authvalid" username="[field2]" password="[field3]" />
+    </action>
+  </recv>
+
+  <nop hide="true" test="authvalid" next="goodauth" />
+  <nop hide="true" next="badauth" />
+
+  <label id="auth_branch"/>
+  <nop hide="true" test="authvalid" next="goodauth" />
+  <nop hide="true" next="badauth" />
+
+  <label id="goodauth"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Expires: [last_Expires:]
+      Service-Route: <sip:pcscf.[field0];lr>
+      P-Associated-URI: <[field1]>
+      Security-Server: tls; port=5061
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <nop hide="true" next="badauth" />
+</scenario>

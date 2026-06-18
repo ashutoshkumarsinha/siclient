@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build -v
+
+      - name: Test
+        run: swift test -v
+
+      - name: Dry run smoke test
+        run: |
+          swift run siclient --profile profiles/lab-volte-01.json --dry-run | tee /tmp/siclient-bootstrap.log
+          grep -q 'bootstrap complete' /tmp/siclient-bootstrap.log
+          grep -q 'lab-volte-01' /tmp/siclient-bootstrap.log
+          if grep -q 'e19aa1c37ab954daa44fa2a52007' /tmp/siclient-bootstrap.log; then
+            echo "Sensitive key material leaked into logs"
+            exit 1
+          fi
+
+      - name: Verify SIPp scenarios exist
+        run: |
+          test -f Tests/sipp/register_aka.xml
+          test -f Tests/sipp/deregister.xml
+          test -f Tests/sipp/register_deregister.xml
+          test -f Tests/sipp/pcscf_register_uas.xml
+          test -f Tests/sipp/mo_volte_precondition.xml
+          test -f Tests/sipp/mt_volte.xml
+          test -f Tests/sipp/uas_volte_call.xml
+          test -f Tests/sipp/lab-volte-01.csv
+          test -f Tests/sipp/digest-auth.env
+          test -x Tests/sipp/run-register.sh
+          test -x Tests/sipp/run-uas.sh
+          test -x Tests/sipp/run-mo-call.sh
+          test -x Tests/sipp/run-mt-call.sh
+
+      - name: SIPp loopback (when available)
+        run: |
+          if ! command -v sipp >/dev/null 2>&1; then
+            echo "SIPp not installed; skipping loopback scenarios"
+            exit 0
+          fi
+          ./Tests/sipp/run-uas-volte.sh 127.0.0.1 15060 &
+          UAS_PID=$!
+          sleep 0.5
+          ./Tests/sipp/run-mo-call.sh 127.0.0.1:15060
+          kill "$UAS_PID" 2>/dev/null || true
+          ./Tests/sipp/run-mt-call.sh 127.0.0.1 15061

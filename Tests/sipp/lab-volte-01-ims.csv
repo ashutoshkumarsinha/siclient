@@ -1,0 +1,7 @@
+SEQUENTIAL
+# field0: home domain / realm
+# field1: default IMPU
+# field2: IMPI (Digest username)
+# field3: AUTN hex (lab AKA vector)
+# field4: nonce = RAND||AUTN hex (AKAv1-MD5 expects 32-byte nonce)
+ims.mnc001.mcc001.3gppnetwork.org;sip:001010123456789@ims.mnc001.mcc001.3gppnetwork.org;001010123456789@ims.mnc001.mcc001.3gppnetwork.org;a542211d8b3e10e7a54608d746c59f0a;235a551dbe46746a83255202074e3bcaa542211d8b3e10e7a54608d746c59f0a

@@ -1,0 +1,7 @@
+SEQUENTIAL
+# field0: home domain / realm
+# field1: default IMPU
+# field2: IMPI (Digest username)
+# field3: MD5 digest password (UAS verifyauth / UAC -ap)
+# field4: callee Request-URI for MO/MT call scenarios
+ims.mnc001.mcc001.3gppnetwork.org;sip:001010123456789@ims.mnc001.mcc001.3gppnetwork.org;001010123456789@ims.mnc001.mcc001.3gppnetwork.org;lab-volte-secret;sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org

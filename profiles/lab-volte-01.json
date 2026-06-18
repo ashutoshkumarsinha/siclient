@@ -1,0 +1,43 @@
+{
+  "profile_id": "lab-volte-01",
+  "home_domain": "ims.mnc001.mcc001.3gppnetwork.org",
+  "pcscf": {
+    "mode": "static",
+    "address": "10.0.0.1",
+    "port": 5060
+  },
+  "transport": {
+    "preference": ["udp", "tcp", "tls"]
+  },
+  "security": {
+    "mechanism": "tls"
+  },
+  "codecs": {
+    "audio": ["AMR-WB", "AMR"],
+    "video": ["H264", "H265"]
+  },
+  "preconditions": {
+    "enabled": true,
+    "fail_timeout_ms": 8000
+  },
+  "timers": {
+    "registration_refresh_ratio": 0.8,
+    "keepalive_sec": 45
+  },
+  "lab_sim": {
+    "impi": "001010123456789@ims.mnc001.mcc001.3gppnetwork.org",
+    "impus": [
+      "sip:001010123456789@ims.mnc001.mcc001.3gppnetwork.org",
+      "tel:+1001010123456789"
+    ],
+    "aka_vectors": [
+      {
+        "rand": "235a551dbe46746a83255202074e3bca",
+        "autn": "a542211d8b3e10e7a54608d746c59f0a",
+        "res": "e19aa1c37ab954daa44fa2a52007",
+        "ik": "4f44282041c2e6f9277be486541a48f1",
+        "ck": "a746f0f8e465d622812a466f34a9b610"
+      }
+    ]
+  }
+}
