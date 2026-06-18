@@ -10,6 +10,7 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
     case invalidRefreshRatio(Double)
     case invalidKeepalive(Int)
     case invalidPreconditionTimeout(Int)
+    case invalidRTPPort(Int)
     case labSimMissingIMPUs
     case labSimEmptyIMPI
     case invalidHexField(String, field: String)
@@ -34,6 +35,8 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
             return "keepalive_sec must be between 10 and 300, got \(seconds)"
         case .invalidPreconditionTimeout(let ms):
             return "fail_timeout_ms must be between 1000 and 60000, got \(ms)"
+        case .invalidRTPPort(let port):
+            return "media.local_rtp_port out of range: \(port)"
         case .labSimMissingIMPUs:
             return "lab_sim.impus must contain at least one IMPU"
         case .labSimEmptyIMPI:
@@ -89,6 +92,11 @@ public enum ProfileValidator {
         let timeout = profile.preconditions.failTimeoutMs
         guard (1000 ... 60000).contains(timeout) else {
             throw ProfileValidationError.invalidPreconditionTimeout(timeout)
+        }
+
+        let rtpPort = profile.media.localRTPPort
+        guard (1024 ... 65535).contains(rtpPort) else {
+            throw ProfileValidationError.invalidRTPPort(rtpPort)
         }
 
         if let labSim = profile.labSim {

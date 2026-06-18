@@ -59,6 +59,35 @@ public enum RTCPPacket {
         return data
     }
 
+    public static func parseReceiverReport(_ data: Data) -> RTCPReceiverReport? {
+        guard data.count >= 8 else { return nil }
+        let packetType = data[1]
+        guard packetType == 201 else { return nil }
+        guard data.count >= 32 else {
+            let senderSSRC = readUInt32(data, offset: 4)
+            return RTCPReceiverReport(
+                ssrc: senderSSRC,
+                fractionLost: 0,
+                cumulativeLost: 0,
+                highestSequence: 0,
+                jitter: 0
+            )
+        }
+
+        let reportedSSRC = readUInt32(data, offset: 8)
+        let fraction = data[12]
+        let lost = Int32((UInt32(data[13]) << 16) | (UInt32(data[14]) << 8) | UInt32(data[15]))
+        let highest = readUInt32(data, offset: 16)
+        let jitter = readUInt32(data, offset: 20)
+        return RTCPReceiverReport(
+            ssrc: reportedSSRC,
+            fractionLost: fraction,
+            cumulativeLost: lost,
+            highestSequence: highest,
+            jitter: jitter
+        )
+    }
+
     public static func parseSenderReport(_ data: Data) -> RTCPSenderReport? {
         guard data.count >= 28 else { return nil }
         guard data[1] == 200 else { return nil }

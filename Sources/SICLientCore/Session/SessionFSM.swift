@@ -10,6 +10,8 @@ public actor SessionFSM {
     private var activeSession: SessionContext?
     private var pendingInvite: SIPRequest?
     private var activeMedia: MediaSession?
+    private var activeVideo: VideoRTPSession?
+    private var audioIODevice: AudioIODevice?
 
     public init(
         profile: OperatorProfile,
@@ -94,6 +96,7 @@ public actor SessionFSM {
 
         var dialog = DialogContext()
         dialog.localCSeq = 1
+        let audioPort = profile.media.localRTPPort
         var session = SessionContext(
             dialog: dialog,
             state: .inviting,
@@ -101,15 +104,16 @@ public actor SessionFSM {
             localURI: impu,
             preconditionState: preconditionState,
             bearerHandle: bearer,
-            localAudioPort: 40000
+            localAudioPort: audioPort
         )
         activeSession = session
 
         let offer = SDPSessionBuilder.voLTEOffer(
             profile: profile,
             localIP: localIP,
-            audioPort: 40000,
-            preconditionState: preconditionState
+            audioPort: audioPort,
+            preconditionState: preconditionState,
+            includeVideo: profile.media.enableVideo
         )
 
         let invite = SessionRequestBuilder.makeInvite(
@@ -266,6 +270,10 @@ public actor SessionFSM {
         logger.info("Call media direction updated", fields: ["direction": direction.rawValue])
     }
 
+    public func sendDTMF(_ digit: Character) async throws {
+        try await activeMedia?.sendDTMF(digit)
+    }
+
     private func startMedia(session: inout SessionContext, remoteSDP: SDPSessionDescription, localIP: String) async throws {
         guard let factory = mediaTransportFactory else { return }
         guard let remote = SDPMediaParser.audioEndpoint(
@@ -273,10 +281,17 @@ public actor SessionFSM {
             preferred: AudioCodec.fromProfile(profile.codecs.audio)
         ) else { return }
 
-        let localPort = session.localAudioPort ?? 40000
+        let localPort = session.localAudioPort ?? profile.media.localRTPPort
         let codec = session.negotiatedCodec ?? remote.codec
-        let engine = LabAMRCodecEngine(codec: codec)
-        let media = MediaSession(transport: factory(), codecEngine: engine)
+        let engine = MediaBootstrap.codecEngine(for: codec, profile: profile)
+        if profile.media.enableAudioIO, audioIODevice == nil {
+            audioIODevice = AudioIODevice()
+        }
+        let media = MediaSession(
+            transport: factory(),
+            codecEngine: engine,
+            audioIO: profile.media.enableAudioIO ? audioIODevice : nil
+        )
         do {
             try await media.start(localPort: localPort, remote: remote, direction: session.mediaDirection)
         } catch {
@@ -284,6 +299,16 @@ public actor SessionFSM {
         }
         activeMedia = media
         session.remoteMedia = remote
+
+        if profile.media.enableVideo,
+           let videoRemote = SDPMediaParser.videoEndpoint(
+               from: remoteSDP,
+               preferred: VideoCodec.fromProfile(profile.codecs.video)
+           ) {
+            let video = VideoRTPSession()
+            await video.start(remote: videoRemote)
+            activeVideo = video
+        }
     }
 
     private func fulfillPreconditionsMO(
@@ -300,7 +325,7 @@ public actor SessionFSM {
         let updateSDP = SDPSessionBuilder.voLTEOffer(
             profile: profile,
             localIP: localIP,
-            audioPort: 40000,
+            audioPort: profile.media.localRTPPort,
             preconditionState: session.preconditionState
         )
         let update = SessionRequestBuilder.makeUPDATE(
@@ -495,6 +520,12 @@ public actor SessionFSM {
             await media.stop()
             activeMedia = nil
         }
+        if let video = activeVideo {
+            await video.stop()
+            activeVideo = nil
+        }
+        audioIODevice?.stop()
+        audioIODevice = nil
         if let bearer = session.bearerHandle {
             try? platform.bearer.releaseBearer(bearer)
             session.bearerHandle = nil

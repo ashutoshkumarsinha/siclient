@@ -119,6 +119,63 @@ import Testing
     try await sessionFSM.terminateActiveCall(registration: registration)
 }
 
+@Test func rtcpReceiverReportParses() {
+    var data = Data([0x81, 201, 0, 7])
+    data.append(contentsOf: [0xAA, 0xBB, 0xCC, 0xDD])
+    data.append(contentsOf: [0x11, 0x22, 0x33, 0x44])
+    data.append(0x05)
+    data.append(contentsOf: [0x00, 0x00, 0x02])
+    data.append(contentsOf: [0x00, 0x00, 0x01, 0x00])
+    data.append(contentsOf: [0x00, 0x00, 0x00, 0x10])
+    data.append(contentsOf: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+
+    let parsed = RTCPPacket.parseReceiverReport(data)
+    #expect(parsed?.ssrc == 0x1122_3344)
+    #expect(parsed?.fractionLost == 5)
+    #expect(parsed?.cumulativeLost == 2)
+    #expect(parsed?.highestSequence == 256)
+    #expect(parsed?.jitter == 16)
+}
+
+@Test func udpRtpTransportRoundTrip() async throws {
+    let sender = UDPRTPTransport()
+    let receiver = UDPRTPTransport()
+    try await receiver.bind(localPort: 50_001)
+    try await sender.bind(localPort: 0)
+
+    let packet = RTPPacket(
+        payloadType: 103,
+        sequenceNumber: 7,
+        timestamp: 160,
+        ssrc: 0xDEAD_BEEF,
+        payload: Data([0x01, 0x02])
+    ).serialize()
+
+    try await sender.send(packet, to: "127.0.0.1", port: 50_001)
+    let received = try await receiver.receive(timeout: .seconds(2))
+    #expect(received?.data == packet)
+
+    await sender.close()
+    await receiver.close()
+}
+
+@Test func networkResiliencePolicy() {
+    #expect(NetworkResiliencePolicy.shouldReregisterAfterIPChange(previousPath: "wifi", currentPath: "lte"))
+    #expect(!NetworkResiliencePolicy.shouldReregisterAfterIPChange(previousPath: "wifi", currentPath: "wifi"))
+    #expect(NetworkResiliencePolicy.registrationRetryDelay(attempt: 0) == .milliseconds(500))
+}
+
+@Test func videoRtp_serviceTracksKeyframes() async {
+    let session = VideoRTPSession()
+    let remote = VideoMediaEndpoint(address: "127.0.0.1", port: 50002, payloadType: 96, codec: .h264)
+    await session.start(remote: remote)
+    await session.noteKeyframeSent(bytes: 1200)
+    let stats = await session.currentStats()
+    #expect(stats.packetsSent == 1)
+    #expect(stats.bytesSent == 1200)
+    await session.stop()
+}
+
 @Test func sipErrorMapperActions() {
     #expect(SIPErrorMapper.action(for: 401) == .reauthenticate)
     #expect(SIPErrorMapper.action(for: 487) == .cleanupDialog)

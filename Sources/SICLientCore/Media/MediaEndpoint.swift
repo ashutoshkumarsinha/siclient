@@ -59,4 +59,25 @@ public enum SDPMediaParser {
         }
         return .sendrecv
     }
+
+    public static func videoEndpoint(from session: SDPSessionDescription, preferred: [VideoCodec]) -> VideoMediaEndpoint? {
+        guard let video = session.media.first(where: { $0.mediaType == "video" }) else { return nil }
+        let selected = preferred.first ?? .h264
+        var payloadType = UInt8(selected.payloadType)
+        for attribute in video.attributes where attribute.hasPrefix("a=rtpmap:") {
+            let parts = attribute.dropFirst(9).split(separator: " ").map(String.init)
+            guard parts.count >= 2 else { continue }
+            let name = parts[1].split(separator: "/").first.map(String.init) ?? ""
+            if name.uppercased() == selected.rawValue.uppercased(), let pt = UInt8(parts[0]) {
+                payloadType = pt
+                break
+            }
+        }
+        return VideoMediaEndpoint(
+            address: session.connectionAddress,
+            port: video.port,
+            payloadType: payloadType,
+            codec: selected
+        )
+    }
 }

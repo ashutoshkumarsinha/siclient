@@ -15,7 +15,7 @@ import Testing
         output: { collector.append($0) }
     )
     let platform = try PlatformContext.stubbed(profile: profile)
-    let service = CallService(profile: profile, platform: platform, transport: transport, logger: logger)
+    let service = CallService(profile: profile, platform: platform, transport: transport, logger: logger, enableMedia: false)
 
     try await service.register(expires: 60)
     let destination = "sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org"
@@ -48,7 +48,7 @@ import Testing
     }
     let logger = Logger(output: { _ in })
     let platform = try PlatformContext.stubbed(profile: profile)
-    let service = CallService(profile: profile, platform: platform, transport: transport, logger: logger)
+    let service = CallService(profile: profile, platform: platform, transport: transport, logger: logger, enableMedia: false)
     try await service.register(expires: 60)
     #expect(await service.registrationState() == .registered)
 }
@@ -181,7 +181,13 @@ import Testing
 
     let logger = Logger(output: { _ in })
     let platform = try PlatformContext.stubbed(profile: profile)
-    let service = CallService(profile: profile, platform: platform, transport: transport, logger: logger)
+    let service = CallService(
+        profile: profile,
+        platform: platform,
+        transport: transport,
+        logger: logger,
+        enableMedia: false
+    )
     try await service.register(expires: 60)
 
     let callTask = Task {
@@ -212,6 +218,35 @@ import Testing
     } else if case .success = result {
         Issue.record("placeCall should not succeed after cancel")
     }
+}
+
+@Test func holdActiveCallSignaling() async throws {
+    let profile = try loadFixtureProfile()
+    let state = MockIMSState()
+    let bridge = LoopbackRTPBridge()
+    let transport = LoopbackSIPTransport { data in
+        MockIMSResponder.responses(for: data, profile: profile, state: state)
+    }
+    let logger = Logger(output: { _ in })
+    let platform = try PlatformContext.stubbed(profile: profile)
+    let service = CallService(
+        profile: profile,
+        platform: platform,
+        transport: transport,
+        logger: logger,
+        mediaTransportFactory: MediaBootstrap.sharedLoopbackFactory(bridge: bridge)
+    )
+
+    try await service.register(expires: 60)
+    _ = try await service.placeCall(to: "sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org")
+
+    try await service.hold()
+    #expect(await service.activeSession()?.mediaDirection == .sendonly)
+
+    try await service.resume()
+    #expect(await service.activeSession()?.mediaDirection == .sendrecv)
+
+    try await service.hangUp()
 }
 
 private enum MTNetworkLoopback {

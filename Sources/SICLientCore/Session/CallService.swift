@@ -9,13 +9,29 @@ public actor CallService {
     private let registrationFSM: RegistrationFSM
     private let sessionFSM: SessionFSM
 
-    public init(profile: OperatorProfile, platform: PlatformContext, transport: any SIPTransport, logger: Logger) {
+    public init(
+        profile: OperatorProfile,
+        platform: PlatformContext,
+        transport: any SIPTransport,
+        logger: Logger,
+        enableMedia: Bool = true,
+        mediaTransportFactory: (@Sendable () -> any RTPTransport)? = nil
+    ) {
         self.profile = profile
         self.platform = platform
         self.transport = transport
         self.logger = logger
         self.registrationFSM = RegistrationFSM(profile: profile, platform: platform, transport: transport, logger: logger)
-        self.sessionFSM = SessionFSM(profile: profile, platform: platform, transport: transport, logger: logger)
+        let factory: (@Sendable () -> any RTPTransport)? = enableMedia
+            ? (mediaTransportFactory ?? MediaBootstrap.rtpTransportFactory(profile: profile))
+            : nil
+        self.sessionFSM = SessionFSM(
+            profile: profile,
+            platform: platform,
+            transport: transport,
+            logger: logger,
+            mediaTransportFactory: factory
+        )
     }
 
     public func register(expires: Int = 3600) async throws {
@@ -56,6 +72,10 @@ public actor CallService {
     public func resume() async throws {
         let context = await registrationFSM.registrationContext()
         try await sessionFSM.resumeActiveCall(registration: context)
+    }
+
+    public func sendDTMF(_ digit: Character) async throws {
+        try await sessionFSM.sendDTMF(digit)
     }
 
     public func mediaStats() async -> RTPStreamStats {

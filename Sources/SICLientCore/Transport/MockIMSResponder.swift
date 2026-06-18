@@ -43,6 +43,10 @@ public enum MockIMSResponder {
     }
 
     private static func handleInvite(_ request: SIPRequest, profile: OperatorProfile, state: MockIMSState) -> [Data] {
+        if request.headers["To"]?.contains("tag=") == true {
+            return handleReInvite(request, profile: profile)
+        }
+
         state.lastInvite = request
         let localIP = "10.0.0.2"
         let offered = request.body.map { SDPParser.parse(String(decoding: $0, as: UTF8.self)) }
@@ -104,5 +108,20 @@ public enum MockIMSResponder {
         )
         let updateOK = SessionRequestBuilder.makeOK(for: request, sdp: metSDP)
         return [SIPSerializer.serialize(.response(updateOK))]
+    }
+
+    private static func handleReInvite(_ request: SIPRequest, profile: OperatorProfile) -> [Data] {
+        let offeredSDP = request.body.map { SDPParser.parse(String(decoding: $0, as: UTF8.self)) }
+        let offeredCodecs = offeredSDP.map { SDPParser.offeredAudioCodecs($0) } ?? []
+        let direction = offeredSDP.map { SDPMediaParser.mediaDirection(from: $0) } ?? .sendrecv
+        let answer = SDPSessionBuilder.voLTEAnswer(
+            profile: profile,
+            localIP: "10.0.0.2",
+            audioPort: 50000,
+            offeredCodecs: offeredCodecs,
+            preconditionState: PreconditionState(local: .sendrecv, remote: .sendrecv),
+            direction: direction
+        )
+        return [SIPSerializer.serialize(.response(SessionRequestBuilder.makeOK(for: request, sdp: answer)))]
     }
 }

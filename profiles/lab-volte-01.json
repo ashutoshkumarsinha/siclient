@@ -24,6 +24,13 @@
     "registration_refresh_ratio": 0.8,
     "keepalive_sec": 45
   },
+  "media": {
+    "rtp_transport": "udp",
+    "local_rtp_port": 40000,
+    "enable_audio_io": false,
+    "enable_video": false,
+    "use_ffmpeg_codec": false
+  },
   "lab_sim": {
     "impi": "001010123456789@ims.mnc001.mcc001.3gppnetwork.org",
     "impus": [

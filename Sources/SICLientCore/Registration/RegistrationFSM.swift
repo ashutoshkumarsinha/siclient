@@ -71,7 +71,8 @@ public actor RegistrationFSM {
         }
 
         guard firstResponse.statusCode == 401 else {
-            if firstResponse.statusCode == 403 {
+            let action = SIPErrorMapper.action(for: firstResponse.statusCode, method: SIPMethod.register.rawValue)
+            if firstResponse.statusCode == 403 || action == .stop {
                 state = .unregistered
                 lastCredentials = nil
             }

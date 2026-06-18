@@ -130,6 +130,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
     public var codecs: CodecConfig
     public var preconditions: PreconditionsConfig
     public var timers: TimersConfig
+    public var media: MediaConfig
     public var labSim: LabSimConfig?
 
     enum CodingKeys: String, CodingKey {
@@ -141,6 +142,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         case codecs
         case preconditions
         case timers
+        case media
         case labSim = "lab_sim"
     }
 
@@ -153,6 +155,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         codecs: CodecConfig = CodecConfig(),
         preconditions: PreconditionsConfig = PreconditionsConfig(),
         timers: TimersConfig = TimersConfig(),
+        media: MediaConfig = MediaConfig(),
         labSim: LabSimConfig? = nil
     ) {
         self.profileID = profileID
@@ -163,6 +166,35 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         self.codecs = codecs
         self.preconditions = preconditions
         self.timers = timers
+        self.media = media
         self.labSim = labSim
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        profileID = try container.decode(String.self, forKey: .profileID)
+        homeDomain = try container.decode(String.self, forKey: .homeDomain)
+        pcscf = try container.decode(PCSCFConfig.self, forKey: .pcscf)
+        transport = try container.decode(TransportConfig.self, forKey: .transport)
+        security = try container.decode(SecurityConfig.self, forKey: .security)
+        codecs = try container.decodeIfPresent(CodecConfig.self, forKey: .codecs) ?? CodecConfig()
+        preconditions = try container.decodeIfPresent(PreconditionsConfig.self, forKey: .preconditions) ?? PreconditionsConfig()
+        timers = try container.decodeIfPresent(TimersConfig.self, forKey: .timers) ?? TimersConfig()
+        media = try container.decodeIfPresent(MediaConfig.self, forKey: .media) ?? MediaConfig()
+        labSim = try container.decodeIfPresent(LabSimConfig.self, forKey: .labSim)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(profileID, forKey: .profileID)
+        try container.encode(homeDomain, forKey: .homeDomain)
+        try container.encode(pcscf, forKey: .pcscf)
+        try container.encode(transport, forKey: .transport)
+        try container.encode(security, forKey: .security)
+        try container.encode(codecs, forKey: .codecs)
+        try container.encode(preconditions, forKey: .preconditions)
+        try container.encode(timers, forKey: .timers)
+        try container.encode(media, forKey: .media)
+        try container.encodeIfPresent(labSim, forKey: .labSim)
     }
 }

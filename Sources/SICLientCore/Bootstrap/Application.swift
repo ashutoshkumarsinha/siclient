@@ -5,12 +5,26 @@ public struct ApplicationOptions: Sendable {
     public let dryRun: Bool
     public let deregister: Bool
     public let moCallDestination: String?
+    public let callDurationSec: Int
+    public let holdAfterConnect: Bool
+    public let dtmfDigit: Character?
 
-    public init(profilePath: String, dryRun: Bool, deregister: Bool = false, moCallDestination: String? = nil) {
+    public init(
+        profilePath: String,
+        dryRun: Bool,
+        deregister: Bool = false,
+        moCallDestination: String? = nil,
+        callDurationSec: Int = 2,
+        holdAfterConnect: Bool = false,
+        dtmfDigit: Character? = nil
+    ) {
         self.profilePath = profilePath
         self.dryRun = dryRun
         self.deregister = deregister
         self.moCallDestination = moCallDestination
+        self.callDurationSec = callDurationSec
+        self.holdAfterConnect = holdAfterConnect
+        self.dtmfDigit = dtmfDigit
     }
 }
 
@@ -62,6 +76,8 @@ public struct Application: Sendable {
                 "security": profile.security.mechanism.rawValue,
                 "pani": access.paniHeaderValue,
                 "dry_run": String(options.dryRun),
+                "rtp_transport": profile.media.rtpTransport.rawValue,
+                "audio_io": String(profile.media.enableAudioIO),
             ]
         )
 
@@ -84,14 +100,42 @@ public struct Application: Sendable {
         if let destination = options.moCallDestination {
             let session = try await service.placeCall(to: destination)
             logger.info(
-                "MO call flow complete",
+                "MO call established",
                 fields: [
                     "destination": destination,
                     "codec": session.negotiatedCodec?.rawValue ?? "",
                     "preconditions_met": String(session.preconditionState.allMet),
+                    "remote_media": session.remoteMedia.map { "\($0.address):\($0.port)" } ?? "",
                 ]
             )
+
+            if options.holdAfterConnect {
+                try await service.hold()
+                logger.info("Call held", fields: [:])
+                try await Task.sleep(for: .milliseconds(500))
+                try await service.resume()
+                logger.info("Call resumed", fields: [:])
+            }
+
+            if let digit = options.dtmfDigit {
+                try await service.sendDTMF(digit)
+                logger.info("DTMF sent", fields: ["digit": String(digit)])
+            }
+
+            let stats = await service.mediaStats()
+            logger.info(
+                "Media stats",
+                fields: [
+                    "packets_sent": String(stats.packetsSent),
+                    "packets_received": String(stats.packetsReceived),
+                    "packets_lost": String(stats.packetsLost),
+                    "jitter_ms": String(format: "%.2f", stats.jitterMs),
+                ]
+            )
+
+            try await Task.sleep(for: .seconds(options.callDurationSec))
             try await service.hangUp()
+            logger.info("MO call flow complete", fields: ["destination": destination])
             return
         }
 

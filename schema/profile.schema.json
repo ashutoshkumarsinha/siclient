@@ -101,6 +101,24 @@
         }
       }
     },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rtp_transport": {
+          "type": "string",
+          "enum": ["loopback", "udp"]
+        },
+        "local_rtp_port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "enable_audio_io": { "type": "boolean" },
+        "enable_video": { "type": "boolean" },
+        "use_ffmpeg_codec": { "type": "boolean" }
+      }
+    },
     "lab_sim": {
       "type": "object",
       "description": "Development-only SIM credentials and AKA test vectors",

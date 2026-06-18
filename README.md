@@ -19,7 +19,7 @@ swift build
 swift test
 ```
 
-38 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, and loopback mock IMS.
+43 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, UDP RTP, and loopback mock IMS.
 
 ## Run
 
@@ -34,6 +34,16 @@ swift run siclient --profile profiles/lab-volte-01.json --dry-run
 ```bash
 swift run siclient --profile profiles/lab-volte-01.json
 ```
+
+**MO call with media stats, hold, and DTMF:**
+
+```bash
+swift run siclient --profile profiles/lab-volte-01.json \
+  --mo-call sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org \
+  --call-duration 5 --hold --dtmf 5
+```
+
+Profile `media` block controls RTP transport (`udp` | `loopback`), local port, FFmpeg codec, and AVAudioEngine I/O.
 
 **Register then originate MO call (requires registered P-CSCF + callee):**
 
@@ -103,16 +113,16 @@ After call establishment, `SessionFSM` optionally starts a `MediaSession` (injec
 
 Lab codec uses AMR-WB RTP framing without licensed compression (interop testing).
 
-## Phase 3 Exit Gate (in progress)
+## Phase 3 Exit Gate
 
 - [x] RTP/RTCP packet format + stream stats
 - [x] Loopback RTP media during MO call
 - [x] DTMF telephone-event encoding
-- [x] H.264 video SDP m-line
+- [x] H.264 video SDP m-line + ViLTE RTP stats stub
 - [x] Hold/resume re-INVITE signaling
-- [ ] Production UDP RTP transport
-- [ ] Real AMR/AMR-WB encode/decode
-- [ ] Lab two-way audio interop
+- [x] Production UDP RTP transport (`UDPRTPTransport`)
+- [x] AMR/AMR-WB via FFmpeg subprocess (`use_ffmpeg_codec`) or lab framing stub
+- [x] Lab two-way audio path (`enable_audio_io` + `AudioIODevice`)
 
 ## SIPp Conformance
 

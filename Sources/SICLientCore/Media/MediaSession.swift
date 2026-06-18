@@ -4,13 +4,16 @@ public actor MediaSession {
     private let transport: any RTPTransport
     private let codecEngine: any AudioCodecEngine
     private var rtpSession: RTPSession?
+    private var audioIO: AudioIODevice?
     private var direction: MediaDirection = .sendrecv
     private var pumpTask: Task<Void, Never>?
     private var rtcpTask: Task<Void, Never>?
+    private var capturePCM: Data?
 
-    public init(transport: any RTPTransport, codecEngine: any AudioCodecEngine) {
+    public init(transport: any RTPTransport, codecEngine: any AudioCodecEngine, audioIO: AudioIODevice? = nil) {
         self.transport = transport
         self.codecEngine = codecEngine
+        self.audioIO = audioIO
     }
 
     public func start(
@@ -36,6 +39,12 @@ public actor MediaSession {
             Task { await self.handleReceived(packet) }
         }
 
+        if let audioIO {
+            try audioIO.start { [weak self] pcm in
+                Task { await self?.setCapturePCM(pcm) }
+            }
+        }
+
         if direction == .sendrecv || direction == .sendonly {
             pumpTask = Task { [weak self] in
                 guard let self else { return }
@@ -47,6 +56,10 @@ public actor MediaSession {
             guard let self else { return }
             await self.rtcpLoop()
         }
+    }
+
+    private func setCapturePCM(_ pcm: Data) {
+        capturePCM = pcm
     }
 
     public func sendDTMF(_ digit: Character) async throws {
@@ -83,6 +96,8 @@ public actor MediaSession {
         rtcpTask?.cancel()
         pumpTask = nil
         rtcpTask = nil
+        audioIO?.stop()
+        audioIO = nil
         if let rtpSession {
             await rtpSession.stop()
         }
@@ -93,7 +108,12 @@ public actor MediaSession {
     private func transmitLoop() async {
         var frameIndex: UInt8 = 0
         while !Task.isCancelled {
-            let pcm = Data(repeating: frameIndex, count: codecEngine.samplesPerFrame * 2)
+            let pcm: Data
+            if let capturePCM, capturePCM.count >= codecEngine.samplesPerFrame * 2 {
+                pcm = capturePCM
+            } else {
+                pcm = Data(repeating: frameIndex, count: codecEngine.samplesPerFrame * 2)
+            }
             let payload = codecEngine.encodePCM(pcm)
             do {
                 try await rtpSession?.send(
@@ -117,6 +137,7 @@ public actor MediaSession {
     }
 
     private func handleReceived(_ packet: RTPPacket) {
-        _ = codecEngine.decodeRTPPayload(packet.payload)
+        let pcm = codecEngine.decodeRTPPayload(packet.payload)
+        audioIO?.playPCM(pcm)
     }
 }

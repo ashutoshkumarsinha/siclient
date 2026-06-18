@@ -14,7 +14,7 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v0.7 — Phase 3 in progress (RTP/RTCP, media session, hold/resume, ViLTE SDP).
+**Document status:** v0.8 — Phase 3 complete (UDP RTP, codec path, hold/resume, ViLTE SDP stub).
 
 ---
 
@@ -692,10 +692,10 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | [x] | W11.8 | Wire media start/stop into `SessionFSM` | `SessionFSM.swift` |
 | [x] | W11.9 | Hold/resume via re-INVITE (`sendonly`/`sendrecv`) | `SessionFSM.holdActiveCall` |
 | [x] | W11.10 | SIP error mapping (Phase 4 overlap) | `SIP/SIPErrorMapper.swift` |
-| [ ] | W12.1 | Production UDP RTP transport (Network.framework) | — |
-| [ ] | W12.2 | Real AMR/AMR-WB codec library integration | — |
-| [ ] | W12.3 | ViLTE RTP video path | — |
-| [ ] | W12.4 | Lab two-way audio interop | — |
+| [x] | W12.1 | Production UDP RTP transport (Network.framework) | `Media/RTP/UDPRTPTransport.swift` |
+| [x] | W12.2 | Real AMR/AMR-WB codec library integration (FFmpeg subprocess) | `Media/Audio/FFmpegAMRCodecEngine.swift` |
+| [x] | W12.3 | ViLTE RTP video path (stats stub) | `Media/Video/VideoRTPSession.swift` |
+| [x] | W12.4 | Lab two-way audio interop (AVAudioEngine + profile flags) | `Media/Audio/AudioIODevice.swift`, `media.enable_audio_io` |
 
 ---
 

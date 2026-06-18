@@ -164,7 +164,8 @@ public enum SDPSessionBuilder {
         localIP: String,
         audioPort: Int,
         offeredCodecs: [AudioCodec],
-        preconditionState: PreconditionState
+        preconditionState: PreconditionState,
+        direction: MediaDirection = .sendrecv
     ) -> SDPSessionDescription {
         let selected = selectCodec(preferred: AudioCodec.fromProfile(profile.codecs.audio), offered: offeredCodecs)
         var attributes: [String] = []
@@ -176,7 +177,7 @@ public enum SDPSessionBuilder {
             attributes.append(contentsOf: preconditionState.currAttributes())
             attributes.append(contentsOf: PreconditionState.desiredAttributes(enabled: true))
         }
-        attributes.append("a=sendrecv")
+        attributes.append("a=\(direction.rawValue)")
 
         return SDPSessionDescription(
             originAddress: localIP,
