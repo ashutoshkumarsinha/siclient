@@ -1,6 +1,15 @@
+// TestHelpers.swift
+//
+// Shared test utilities for SICLientCoreTests: log collectors, fixture profile loaders,
+// mock IMS transport wiring, and pre-registered CallService factories. These helpers
+// let individual test files focus on IMS behavior rather than boilerplate setup.
+
 import Foundation
 @testable import SICLientCore
 
+// MARK: - Log capture
+
+/// Thread-safe collector for structured log lines emitted during tests.
 final class LineCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var lines: [String] = []
@@ -18,6 +27,9 @@ final class LineCollector: @unchecked Sendable {
     }
 }
 
+// MARK: - Fixture profiles
+
+/// Resolves a JSON operator profile from the repo's profiles/ directory.
 func fixtureURL(named name: String) -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -26,14 +38,19 @@ func fixtureURL(named name: String) -> URL {
         .standardizedFileURL
 }
 
+/// Standard lab VoLTE profile used by most core tests (static P-CSCF, AMR-WB, lab SIM).
 func loadFixtureProfile() throws -> OperatorProfile {
     try ProfileLoader.load(from: fixtureURL(named: "lab-volte-01.json"))
 }
 
+/// Premium profile with EVS codec for codec-selection tests.
 func loadPremiumProfile() throws -> OperatorProfile {
     try ProfileLoader.load(from: fixtureURL(named: "lab-volte-evs-premium.json"))
 }
 
+// MARK: - Mock transport & CallService factories
+
+/// Loopback SIP transport that routes REGISTER to mock P-CSCF and everything else to mock IMS.
 func makeMockIMSTransport(
     profile: OperatorProfile,
     state: MockIMSState = MockIMSState()
@@ -44,6 +61,7 @@ func makeMockIMSTransport(
     }
 }
 
+/// Builds a CallService wired to stub platform adapters and a provided transport.
 func makeCallService(
     profile: OperatorProfile,
     transport: any SIPTransport,
@@ -65,6 +83,7 @@ func makeCallService(
     )
 }
 
+/// Convenience: register against mock P-CSCF/IMS and return a ready CallService.
 func registeredCallService(
     profile: OperatorProfile,
     state: MockIMSState = MockIMSState(),

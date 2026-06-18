@@ -1,12 +1,24 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// A SIP client transaction sends one request and waits for a final response,
+// retransmitting over UDP if no answer arrives (RFC 3261 timer rules).
+// This file implements that state machine for non-INVITE requests like REGISTER.
+
+/// Lifecycle states of a SIP client transaction (RFC 3261).
 public enum ClientTransactionState: Sendable, Equatable {
+    /// Request sent; awaiting first response.
     case calling
+    /// Provisional (1xx) response received.
     case proceeding
+    /// Final response received.
     case completed
+    /// Transaction finished; no further retransmits.
     case terminated
 }
 
+/// Errors that can occur while waiting for a SIP response.
 public enum ClientTransactionError: Error, Sendable, CustomStringConvertible {
     case timeout
     case transportFailed(String)
@@ -21,12 +33,14 @@ public enum ClientTransactionError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Sends a SIP request and collects responses, handling UDP retransmission and timeouts.
 public actor ClientTransaction {
     private let transport: any SIPTransport
     private let logger: Logger?
     private let t1: Duration
     private let t2: Duration
 
+    /// Creates a client transaction bound to the given transport and RFC 3261 timers.
     public init(transport: any SIPTransport, logger: Logger? = nil, t1: Duration = .milliseconds(500), t2: Duration = .seconds(4)) {
         self.transport = transport
         self.logger = logger
@@ -34,6 +48,7 @@ public actor ClientTransaction {
         self.t2 = t2
     }
 
+    /// Sends a SIP request and returns the first final (non-1xx) response matching the predicate.
     public func send(
         _ request: SIPRequest,
         matching predicate: @Sendable @escaping (SIPResponse) -> Bool = { _ in true }
@@ -44,6 +59,7 @@ public actor ClientTransaction {
 
         var lastResponse: SIPResponse?
         var attempt = 0
+        // UDP is unreliable — retransmit up to 7 times; TCP/TLS sends once.
         let maxAttempts = transport.isReliable ? 1 : 7
 
         while attempt < maxAttempts {
@@ -55,6 +71,7 @@ public actor ClientTransaction {
                 lastResponse = response
                 state = .proceeding
 
+                // 1xx provisional responses are not final — keep waiting.
                 if (100 ... 199).contains(response.statusCode) {
                     continue
                 }

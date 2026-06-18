@@ -1,7 +1,18 @@
+// RegistrationTests.swift
+//
+// Verifies the RegistrationFSM — the state machine that drives SIP REGISTER against
+// the P-CSCF, handles 401 AKA challenges, stores Service-Route/IMPU, and refreshes
+// before Expires. Registration is the prerequisite for every IMS voice, SMS, and data service.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Full registration flow
+
+/// Exercises the standard two-step IMS registration: unauthenticated REGISTER, 401 with
+/// Digest challenge, AKA via lab SIM, authenticated REGISTER → 200 OK with Service-Route.
+/// Also confirms secrets never leak into registration logs.
 @Test func twoStepRegistrationAgainstMockPCSCF() async throws {
     let profile = try loadFixtureProfile()
     let state = MockPCSCFState()
@@ -25,6 +36,10 @@ import Testing
     #expect(logs.contains("registration complete"))
 }
 
+// MARK: - Deregistration
+
+/// After a successful REGISTER the UE must be able to send REGISTER with Expires: 0
+/// to cleanly detach from the IMS — important for power-off and airplane-mode scenarios.
 @Test func deregisterAfterRegistration() async throws {
     let profile = try loadFixtureProfile()
     let state = MockPCSCFState()
@@ -41,6 +56,10 @@ import Testing
     #expect(await fsm.currentState() == .unregistered)
 }
 
+// MARK: - Registration refresh
+
+/// Before the 200 OK Expires timer fires, the client should automatically re-REGISTER
+/// at the configured refresh ratio (~80%). Lapsed registration drops all IMS services.
 @Test func reRegisterCycle() async throws {
     var profile = try loadFixtureProfile()
     profile.timers.registrationRefreshRatio = 0.1
@@ -62,6 +81,10 @@ import Testing
     try await fsm.deregister()
 }
 
+// MARK: - Error handling
+
+/// A 403 Forbidden from the P-CSCF (e.g. barred subscriber) must leave the FSM in
+/// unregistered state — the UE should not assume it can place calls or send SMS.
 @Test func networkDeregisterOn403() async throws {
     let profile = try loadFixtureProfile()
     let transport = LoopbackSIPTransport(singleResponder: { data in

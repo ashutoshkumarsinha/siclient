@@ -1,16 +1,24 @@
 import Foundation
 @preconcurrency import AVFAudio
 
+// MARK: - File Overview
+// Captures microphone audio and plays received PCM (Pulse-Code Modulation) audio
+// using macOS AVAudioEngine. Converts captured samples to 16 kHz mono for VoLTE codecs.
+
+/// Bridges the system microphone and speaker to the media session as raw PCM data.
 public final class AudioIODevice: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private var captureCallback: (@Sendable (Data) -> Void)?
     private let lock = NSLock()
 
+    /// Creates an audio I/O device backed by AVAudioEngine.
     public init() {}
 
+    /// True while the audio engine is running.
     public var isRunning: Bool { engine.isRunning }
 
+    /// Starts microphone capture and playback; calls the handler with PCM frames at 16 kHz.
     public func start(captureHandler: @escaping @Sendable (Data) -> Void) throws {
         lock.lock()
         captureCallback = captureHandler
@@ -18,6 +26,7 @@ public final class AudioIODevice: @unchecked Sendable {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // VoLTE wideband codecs expect 16 kHz, 16-bit, mono PCM.
         let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
         engine.attach(playerNode)
@@ -46,6 +55,7 @@ public final class AudioIODevice: @unchecked Sendable {
         playerNode.play()
     }
 
+    /// Queues PCM audio for playback through the speaker.
     public func playPCM(_ pcm: Data) {
         guard engine.isRunning else { return }
         let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
@@ -59,6 +69,7 @@ public final class AudioIODevice: @unchecked Sendable {
         playerNode.scheduleBuffer(buffer)
     }
 
+    /// Stops capture, playback, and tears down the audio engine.
     public func stop() {
         engine.inputNode.removeTap(onBus: 0)
         playerNode.stop()

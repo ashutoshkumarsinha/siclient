@@ -1,16 +1,32 @@
 import Foundation
 
+// MARK: - File overview
+//
+// A full mock IMS (IP Multimedia Subsystem) server for integration tests. Handles
+// SIP (Session Initiation Protocol) REGISTER, INVITE, PRACK, UPDATE, BYE, and
+// MESSAGE flows including VoLTE (Voice over LTE) SDP (Session Description Protocol)
+// negotiation with 100rel and preconditions.
+
+/// Mutable state for the full mock IMS stack (registration + active session).
 public final class MockIMSState: @unchecked Sendable {
+    /// Nested P-CSCF registration state.
     public let pcscf = MockPCSCFState()
+    /// Last INVITE received (needed to correlate PRACK/UPDATE).
     public var lastInvite: SIPRequest?
+    /// Count of PRACK requests handled.
     public var prackCount = 0
+    /// Count of UPDATE requests handled.
     public var updateCount = 0
+    /// Count of BYE requests handled.
     public var byeCount = 0
 
+    /// Creates fresh mock IMS state.
     public init() {}
 }
 
+/// Routes incoming SIP requests to the appropriate mock handler and returns responses.
 public enum MockIMSResponder {
+    /// Dispatches a parsed SIP request and returns zero or more serialized responses.
     public static func responses(
         for requestData: Data,
         profile: OperatorProfile,
@@ -38,12 +54,13 @@ public enum MockIMSResponder {
         case SIPMethod.message.rawValue:
             return [SIPSerializer.serialize(.response(SIPResponse(statusCode: 202, reasonPhrase: "Accepted")))]
         case SIPMethod.ack.rawValue:
-            return []
+            return [] // ACK has no response
         default:
             return []
         }
     }
 
+    /// Handles initial INVITE (183 Session Progress) or re-INVITE (200 OK).
     private static func handleInvite(_ request: SIPRequest, profile: OperatorProfile, state: MockIMSState) -> [Data] {
         if request.headers["To"]?.contains("tag=") == true {
             return handleReInvite(request, profile: profile)
@@ -68,6 +85,7 @@ public enum MockIMSResponder {
         return [SIPSerializer.serialize(.response(progress))]
     }
 
+    /// Handles PRACK: 200 OK for PRACK, then 200 OK for INVITE with updated preconditions.
     private static func handlePRACK(_ request: SIPRequest, profile: OperatorProfile, state: MockIMSState) -> [Data] {
         state.prackCount += 1
         guard let invite = state.lastInvite else {
@@ -92,6 +110,7 @@ public enum MockIMSResponder {
         ]
     }
 
+    /// Handles UPDATE with SDP reflecting met preconditions on both sides.
     private static func handleUPDATE(_ request: SIPRequest, profile: OperatorProfile, state: MockIMSState) -> [Data] {
         state.updateCount += 1
         guard let invite = state.lastInvite else {
@@ -112,6 +131,7 @@ public enum MockIMSResponder {
         return [SIPSerializer.serialize(.response(updateOK))]
     }
 
+    /// Handles re-INVITE (e.g. hold/resume) with SDP matching the offered direction.
     private static func handleReInvite(_ request: SIPRequest, profile: OperatorProfile) -> [Data] {
         let offeredSDP = request.body.map { SDPParser.parse(String(decoding: $0, as: UTF8.self)) }
         let offeredCodecs = offeredSDP.map { SDPParser.offeredAudioCodecs($0) } ?? []

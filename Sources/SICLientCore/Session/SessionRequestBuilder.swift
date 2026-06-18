@@ -1,6 +1,15 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// Factory for SIP call-control messages: INVITE (start call), ACK (confirm answer),
+// CANCEL (abort ringing), BYE (hang up), re-INVITE (hold/resume), PRACK/UPDATE
+// (reliable provisionals and precondition negotiation). Each method fills standard
+// IMS headers (P-Access-Network-Info, Route, Security-Verify) from registration context.
+
+/// Builds SIP requests and responses for VoLTE call sessions.
 public enum SessionRequestBuilder {
+    /// Creates an initial INVITE to start an outgoing (MO — Mobile Originated) call with SDP offer.
     public static func makeInvite(
         profile: OperatorProfile,
         impu: String,
@@ -33,6 +42,7 @@ public enum SessionRequestBuilder {
         if profile.preconditions.enabled {
             headers.set("Require", value: "precondition")
         }
+        // Route through the S-CSCF (Serving-CSCF) path learned at registration.
         if let serviceRoute = registration.serviceRoute {
             headers.set("Route", value: serviceRoute)
         }
@@ -44,6 +54,7 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.invite.rawValue, requestURI: requestURI, headers: headers, body: sdpBody)
     }
 
+    /// Creates a re-INVITE within an established dialog to change media (hold, resume, codec).
     public static func makeReInvite(
         profile: OperatorProfile,
         impu: String,
@@ -96,6 +107,7 @@ public enum SessionRequestBuilder {
         return target.trimmingCharacters(in: CharacterSet(charactersIn: "<> "))
     }
 
+    /// Creates a PRACK to acknowledge a reliable provisional (183) response with Require: 100rel.
     public static func makePRACK(
         profile: OperatorProfile,
         impu: String,
@@ -128,6 +140,7 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.prack.rawValue, requestURI: remoteURI, headers: headers)
     }
 
+    /// Creates an UPDATE to negotiate QoS preconditions mid-call-setup without a re-INVITE.
     public static func makeUPDATE(
         profile: OperatorProfile,
         impu: String,
@@ -161,6 +174,7 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.update.rawValue, requestURI: remoteURI, headers: headers, body: sdpBody)
     }
 
+    /// Creates ACK confirming receipt of the 200 OK to INVITE (completes three-way handshake).
     public static func makeACK(
         impu: String,
         localIP: String,
@@ -182,6 +196,7 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.ack.rawValue, requestURI: remoteURI, headers: headers)
     }
 
+    /// Creates CANCEL to abort an INVITE still awaiting a final response (stop ringing).
     public static func makeCANCEL(
         invite: SIPRequest,
         pani: String,
@@ -210,6 +225,7 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.cancel.rawValue, requestURI: invite.requestURI, headers: headers)
     }
 
+    /// Creates BYE to terminate an established call dialog.
     public static func makeBYE(
         impu: String,
         pani: String,
@@ -237,10 +253,12 @@ public enum SessionRequestBuilder {
         return SIPRequest(method: SIPMethod.bye.rawValue, requestURI: remoteURI, headers: headers)
     }
 
+    /// Builds 100 Trying — first provisional response to an incoming INVITE.
     public static func makeTrying(for invite: SIPRequest) -> SIPResponse {
         response(from: invite, statusCode: 100, reasonPhrase: "Trying")
     }
 
+    /// Builds 183 Session Progress with SDP answer; may require PRACK when preconditions enabled.
     public static func makeSessionProgress(
         for invite: SIPRequest,
         sdp: SDPSessionDescription,
@@ -264,6 +282,7 @@ public enum SessionRequestBuilder {
         return response
     }
 
+    /// Builds 200 OK for PRACK, UPDATE, or final INVITE answer.
     public static func makeOK(for request: SIPRequest, sdp: SDPSessionDescription? = nil) -> SIPResponse {
         var response = response(from: request, statusCode: 200, reasonPhrase: "OK")
         if let sdp {

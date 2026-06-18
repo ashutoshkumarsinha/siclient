@@ -1,9 +1,15 @@
 import Foundation
 
+// MARK: - File Overview
+// Handles emergency VoLTE service: registers with the IMS (IP Multimedia Subsystem)
+// emergency registrar and places priority emergency calls (e.g. to 112).
+
+/// Errors specific to emergency IMS registration and calling.
 public enum EmergencyError: Error, Sendable, CustomStringConvertible {
     case disabled
     case registrationFailed(Int)
 
+    /// Human-readable error description.
     public var description: String {
         switch self {
         case .disabled: return "Emergency IMS is disabled in profile"
@@ -12,6 +18,7 @@ public enum EmergencyError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Registers for emergency IMS service and places emergency calls with priority headers.
 public actor EmergencyService {
     private let profile: OperatorProfile
     private let platform: PlatformContext
@@ -19,6 +26,7 @@ public actor EmergencyService {
     private let logger: Logger
     private let sessionFSM: SessionFSM
 
+    /// Creates an emergency service wired to profile, platform, SIP transport, and session FSM.
     public init(
         profile: OperatorProfile,
         platform: PlatformContext,
@@ -33,6 +41,7 @@ public actor EmergencyService {
         self.sessionFSM = sessionFSM
     }
 
+    /// Registers with the emergency SOS registrar, completing AKA (Authentication and Key Agreement) if challenged.
     public func registerEmergency(expires: Int = 3600) async throws -> RegistrationContext {
         guard profile.services.emergency.enabled else { throw EmergencyError.disabled }
 
@@ -63,6 +72,7 @@ public actor EmergencyService {
             return RegistrationResponseParser.parse200OK(challengeResponse, profile: profile)
         }
 
+        // 401 challenge — compute AKA response and retry with credentials.
         let challenge = try RegistrationResponseParser.parse401(challengeResponse)
         let (rand, autn) = try IMSChallengeDecoder.randAndAUTN(from: challenge)
         let akaResult = try platform.sim.akaChallenge(rand: rand, autn: autn)
@@ -107,6 +117,7 @@ public actor EmergencyService {
         return RegistrationResponseParser.parse200OK(final, profile: profile)
     }
 
+    /// Places an emergency call to the given URI or the profile's default emergency number.
     public func placeEmergencyCall(
         to destinationURI: String? = nil,
         registration: RegistrationContext

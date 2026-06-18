@@ -1,6 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+// Builds SIP (Session Initiation Protocol) REGISTER and INVITE requests for emergency
+// calls. Adds priority and emergency-specific headers required by 3GPP standards.
+
+/// Factory for SIP messages used in emergency registration and calling.
 public enum EmergencyRequestBuilder {
+    /// Builds a SIP REGISTER aimed at the emergency SOS registrar with priority headers.
     public static func makeEmergencyRegister(
         profile: OperatorProfile,
         impi: String,
@@ -35,6 +41,7 @@ public enum EmergencyRequestBuilder {
         return request
     }
 
+    /// Builds a SIP INVITE for an emergency call with priority headers.
     public static func makeEmergencyInvite(
         profile: OperatorProfile,
         impu: String,
@@ -65,6 +72,7 @@ public enum EmergencyRequestBuilder {
         return invite
     }
 
+    /// Builds a Contact header marking this endpoint as emergency-capable.
     private static func emergencyContact(impu: String, expires: Int) -> String {
         "<\(impu)>;expires=\(expires);+g.3gpp.emergency;+g.3gpp.icsi-ref=\"\(IMSHeaderBuilder.preferredServiceMMTel())\""
     }

@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// SessionFSM (Finite State Machine) drives the full VoLTE call lifecycle: outgoing
+// INVITE (MO), incoming INVITE (MT), media setup via SDP, QoS preconditions, hold/resume,
+// and BYE teardown. It coordinates SIP signaling with RTP media and dedicated bearers.
+
+/// State machine for VoLTE call setup, media, hold, and teardown.
 public actor SessionFSM {
     private let profile: OperatorProfile
     private let platform: PlatformContext
@@ -16,6 +23,7 @@ public actor SessionFSM {
     private var heldVideo: VideoRTPSession?
     private var audioIODevice: AudioIODevice?
 
+    /// Creates a session FSM bound to profile, platform adapters, and SIP transport.
     public init(
         profile: OperatorProfile,
         platform: PlatformContext,
@@ -30,7 +38,9 @@ public actor SessionFSM {
         self.mediaTransportFactory = mediaTransportFactory
     }
 
+    /// Returns the active call session context, if a call is in progress or connected.
     public func activeSessionContext() -> SessionContext? { activeSession }
+    /// Returns a held call session while a second call is active.
     public func heldSessionContext() -> SessionContext? { heldSession }
 
     /// Test helper to inject active/held dialogs without full INVITE flow.
@@ -39,6 +49,7 @@ public actor SessionFSM {
         heldSession = held
     }
 
+    /// Tears down all active and held calls plus media when registration is lost.
     public func terminateAllCalls(registration: RegistrationContext) async {
         if var session = activeSession {
             try? await terminate(session: &session, registration: registration)
@@ -69,10 +80,12 @@ public actor SessionFSM {
         pendingInvite = nil
     }
 
+    /// Returns live RTP statistics for the active media session.
     public func mediaStats() async -> RTPStreamStats {
         await activeMedia?.stats() ?? RTPStreamStats()
     }
 
+    /// Sends CANCEL to abort an outgoing INVITE that has not yet been answered.
     public func cancelPendingInvite(registration: RegistrationContext) async throws {
         guard let invite = pendingInvite else { throw SessionError.noPendingInvite }
         let pani = try platform.accessInfo.currentAccessInfo().paniHeaderValue
@@ -109,6 +122,7 @@ public actor SessionFSM {
         throw SessionError.inviteCancelled
     }
 
+    /// Starts an outgoing (MO) VoLTE call: INVITE → PRACK/UPDATE → ACK → RTP media.
     public func originateCall(
         to destinationURI: String,
         registration: RegistrationContext,
@@ -121,10 +135,12 @@ public actor SessionFSM {
             throw SessionError.invalidDestination
         }
 
+        // Only one active + one held call allowed at a time.
         if heldSession != nil, activeSession != nil {
             throw SessionError.concurrentCallLimit
         }
 
+        // Auto-hold the current call before placing a second one.
         if var existing = activeSession, existing.state == .established, heldSession == nil {
             try await renegotiateMedia(
                 direction: .sendonly,
@@ -147,6 +163,7 @@ public actor SessionFSM {
 
         let pani = try platform.accessInfo.currentAccessInfo().paniHeaderValue
         let localIP = try platform.network.localIPAddress()
+        // Request a dedicated QoS bearer for voice before sending INVITE.
         let bearer = try platform.bearer.requestDedicatedBearer(qci: .voice)
 
         var preconditionState = PreconditionState()
@@ -208,6 +225,7 @@ public actor SessionFSM {
         STIRSHAKPolicy.attachIdentity(to: &signedInvite.headers, profile: profile)
         pendingInvite = signedInvite
 
+        // INVITE transaction handles 1xx provisionals, PRACK, and final 2xx.
         let transaction = InviteClientTransaction(transport: transport, logger: logger)
         let inviteDialog = dialog
         let result = try await transaction.sendInvite(signedInvite) { [profile] provisional in
@@ -266,6 +284,7 @@ public actor SessionFSM {
         session.dialog.remoteTag = result.final.headers["To"]?.components(separatedBy: "tag=").last?
             .trimmingCharacters(in: CharacterSet(charactersIn: ">; "))
         session.dialog.remoteTarget = destinationURI
+        // Record-Route from 200 OK becomes our Route set for in-dialog requests.
         session.dialog.recordRoute = result.final.headers.allValues("Record-Route")
         if !session.dialog.recordRoute.isEmpty {
             session.dialog.routeSet = session.dialog.recordRoute.reversed()
@@ -305,10 +324,12 @@ public actor SessionFSM {
         return session
     }
 
+    /// Puts the active call on hold by re-INVITE with sendonly SDP.
     public func holdActiveCall(registration: RegistrationContext) async throws {
         try await renegotiateMedia(direction: .sendonly, registration: registration)
     }
 
+    /// Resumes a held call by re-INVITE with sendrecv SDP.
     public func resumeActiveCall(registration: RegistrationContext) async throws {
         try await renegotiateMedia(direction: .sendrecv, registration: registration)
     }
@@ -376,6 +397,7 @@ public actor SessionFSM {
         await media?.setDirection(direction)
     }
 
+    /// Sends an RFC 2833 DTMF tone on the active RTP session.
     public func sendDTMF(_ digit: Character) async throws {
         try await activeMedia?.sendDTMF(digit)
     }
@@ -465,6 +487,7 @@ public actor SessionFSM {
         }
     }
 
+    /// Hangs up the active call; automatically resumes a held call afterward.
     public func terminateActiveCall(registration: RegistrationContext) async throws {
         guard var session = activeSession else { throw SessionError.noActiveSession }
         try await terminate(session: &session, registration: registration)
@@ -488,6 +511,7 @@ public actor SessionFSM {
         }
     }
 
+    /// Handles an incoming (MT — Mobile Terminated) INVITE: Trying → 183 → PRACK → 200 → ACK.
     public func handleIncomingInvite(
         _ invite: SIPRequest,
         registration: RegistrationContext

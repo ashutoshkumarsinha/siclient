@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File overview
+//
+// Sanity-checks an OperatorProfile before the IMS (IP Multimedia Subsystem) client
+// uses it. Catches missing P-CSCF (Proxy Call Session Control Function) addresses,
+// invalid timer ranges, and malformed lab AKA (Authentication and Key Agreement) vectors.
+
+/// Specific validation failures with human-readable descriptions.
 public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConvertible {
     case emptyProfileID
     case emptyHomeDomain
@@ -45,7 +52,7 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
         case .invalidRegistrationRetries(let retries):
             return "resilience.max_registration_retries out of range: \(retries)"
         case .invalidNetworkRecoveryTimeout(let seconds):
-            return "resilience.network_recovery_timeout_sec out of range: \(seconds)"
+            return "network_recovery_timeout_sec out of range: \(seconds)"
         case .labSimMissingIMPUs:
             return "lab_sim.impus must contain at least one IMPU"
         case .labSimEmptyIMPI:
@@ -56,11 +63,13 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
     }
 }
 
+/// Validates operator profile fields against allowed ranges and required values.
 public enum ProfileValidator {
   private static let hex16 = try! NSRegularExpression(pattern: "^[0-9a-fA-F]{32}$")
   private static let hexVariable = try! NSRegularExpression(pattern: "^[0-9a-fA-F]+$")
   private static let hex14 = try! NSRegularExpression(pattern: "^[0-9a-fA-F]{28}$")
 
+    /// Throws ProfileValidationError if any field is missing or out of range.
     public static func validate(_ profile: OperatorProfile) throws {
         if profile.profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ProfileValidationError.emptyProfileID
@@ -144,6 +153,7 @@ public enum ProfileValidator {
         }
     }
 
+    /// Checks a hex string against a regex pattern for AKA vector fields.
     private static func validateHex(_ value: String, field: String, pattern: NSRegularExpression) throws {
         let range = NSRange(value.startIndex..., in: value)
         guard pattern.firstMatch(in: value, range: range) != nil else {

@@ -1,7 +1,17 @@
+// SessionTests.swift
+//
+// Verifies call session behavior — MO (mobile-originated) and MT (mobile-terminated) VoLTE
+// flows, SIP INVITE transactions (PRACK/UPDATE preconditions), hold/resume, and CANCEL.
+// Sessions sit on top of registration; these tests use loopback mock IMS/P-CSCF responders.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Mobile-originated (MO) call flow
+
+/// End-to-end MO VoLTE call: register → INVITE → 183/PRACK/UPDATE preconditions → 200 OK → BYE.
+/// Confirms AMR-WB codec negotiation, bearer activation, and structured logging.
 @Test func moCallWithPreconditionsAgainstMockIMS() async throws {
     let profile = try loadFixtureProfile()
     let state = MockIMSState()
@@ -40,6 +50,7 @@ import Testing
     #expect(logs.contains("Call terminated"))
 }
 
+/// Smoke test: CallService can register through the mock IMS transport and reach `.registered`.
 @Test func callServiceRegistersWithMockIMS() async throws {
     let profile = try loadFixtureProfile()
     let state = MockIMSState()
@@ -53,6 +64,10 @@ import Testing
     #expect(await service.registrationState() == .registered)
 }
 
+// MARK: - Mobile-terminated (MT) call flow
+
+/// Simulates an incoming INVITE from the network (MT call). The SessionFSM must answer with
+/// 183/PRACK/UPDATE to satisfy QoS preconditions and return an established session.
 @Test func mtIncomingInviteHandling() async throws {
     let profile = try loadFixtureProfile()
     let offer = SDPSessionBuilder.voLTEOffer(
@@ -93,6 +108,10 @@ import Testing
     #expect(session.preconditionState.allMet)
 }
 
+// MARK: - INVITE transaction (PRACK)
+
+/// VoLTE requires PRACK in response to 183 Session Progress. This test drives InviteClientTransaction
+/// directly and confirms the mock network receives exactly one PRACK before 200 OK.
 @Test func inviteTransactionRequiresPRACKFor183() async throws {
     let profile = try loadFixtureProfile()
     let state = MockIMSState()
@@ -146,6 +165,10 @@ import Testing
     #expect(state.prackCount == 1)
 }
 
+// MARK: - Call cancel
+
+/// User hangs up before the callee answers: UE sends CANCEL, receives 487 Request Terminated.
+/// Exercises the race between placeCall and cancelCall on CallService.
 @Test func cancelPendingInvite() async throws {
     let profile = try loadFixtureProfile()
     final class CancelState: @unchecked Sendable {
@@ -160,7 +183,7 @@ import Testing
             return MockIMSResponder.responses(for: data, profile: profile, state: MockIMSState())
         case SIPMethod.invite.rawValue:
             cancelState.lastInvite = request
-            return []
+            return [] // simulate slow/no answer until CANCEL arrives
         case SIPMethod.cancel.rawValue:
             var responses: [Data] = [
                 SIPSerializer.serialize(.response(SessionRequestBuilder.makeOK(for: request))),
@@ -220,6 +243,9 @@ import Testing
     }
 }
 
+// MARK: - Hold / resume
+
+/// Hold changes SDP direction to sendonly (music on hold path); resume restores sendrecv.
 @Test func holdActiveCallSignaling() async throws {
     let profile = try loadFixtureProfile()
     let state = MockIMSState()
@@ -249,6 +275,10 @@ import Testing
     try await service.hangUp()
 }
 
+// MARK: - MT loopback helper
+
+/// Simulates the remote network's side of an MT call: responds to 183 with PRACK trigger,
+/// to PRACK 200 with UPDATE, and to INVITE 200 with ACK — mirroring 3GPP precondition flow.
 private enum MTNetworkLoopback {
     static func replies(to sentData: Data, invite: SIPRequest, profile: OperatorProfile) -> [Data] {
         guard case .response(let response) = try? SIPParser.parse(sentData) else { return [] }

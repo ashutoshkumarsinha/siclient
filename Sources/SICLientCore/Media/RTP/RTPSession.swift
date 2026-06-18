@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - File Overview
+// Manages one RTP (Real-time Transport Protocol) media stream: sends encoded payloads,
+// receives remote packets, tracks statistics, and sends RTCP (RTP Control Protocol) reports.
+
+/// Running counters for an RTP stream (sent/received packets, loss, jitter).
 public struct RTPStreamStats: Sendable, Equatable {
     public var packetsSent: UInt64
     public var packetsReceived: UInt64
@@ -9,6 +14,7 @@ public struct RTPStreamStats: Sendable, Equatable {
     public var jitterMs: Double
     public var lastSequence: UInt16
 
+    /// Creates stream stats, defaulting all counters to zero.
     public init(
         packetsSent: UInt64 = 0,
         packetsReceived: UInt64 = 0,
@@ -28,6 +34,7 @@ public struct RTPStreamStats: Sendable, Equatable {
     }
 }
 
+/// One RTP session tied to a transport, remote endpoint, and payload type.
 public actor RTPSession {
     private let transport: any RTPTransport
     private let payloadType: UInt8
@@ -40,12 +47,14 @@ public actor RTPSession {
     private var receiveTask: Task<Void, Never>?
     private var onPacket: (@Sendable (RTPPacket) -> Void)?
 
+    /// Creates an RTP session with transport, payload type, and clock rate from SDP.
     public init(transport: any RTPTransport, payloadType: UInt8, clockRate: Int) {
         self.transport = transport
         self.payloadType = payloadType
         self.clockRate = clockRate
     }
 
+    /// Starts receiving packets and invokes the handler for each matching payload type.
     public func start(remote: MediaEndpoint, onPacket: @escaping @Sendable (RTPPacket) -> Void) async throws {
         self.remote = remote
         self.onPacket = onPacket
@@ -55,6 +64,7 @@ public actor RTPSession {
         }
     }
 
+    /// Sends one RTP media packet and advances sequence/timestamp counters.
     public func send(payload: Data, marker: Bool = false, samplesPerFrame: Int) async throws {
         guard let remote else { return }
         let packet = RTPPacket(
@@ -72,6 +82,7 @@ public actor RTPSession {
         stats.bytesSent &+= UInt64(payload.count)
     }
 
+    /// Sends an RTCP sender report on the port one above the RTP port (convention).
     public func sendRTCPReport() async throws {
         guard let remote else { return }
         let report = RTCPPacket.buildSenderReport(
@@ -83,8 +94,10 @@ public actor RTPSession {
         try await transport.send(report, to: remote.address, port: remote.port + 1)
     }
 
+    /// Returns a snapshot of current stream statistics.
     public func currentStats() -> RTPStreamStats { stats }
 
+    /// Cancels receive loop and closes the underlying transport.
     public func stop() async {
         receiveTask?.cancel()
         receiveTask = nil
@@ -117,6 +130,7 @@ public actor RTPSession {
             }
             let delta = abs(Int32(packet.timestamp) - Int32(timestamp))
             let jitter = Double(delta) / Double(clockRate) * 1000.0
+            // Exponential moving average smooths jitter readings.
             stats.jitterMs = (stats.jitterMs * 0.9) + (jitter * 0.1)
         }
         stats.lastSequence = packet.sequenceNumber

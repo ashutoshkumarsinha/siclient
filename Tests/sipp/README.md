@@ -30,6 +30,22 @@ For **MD5 Digest** loopback testing, `-ap` is `MD5_PASSWORD` from `digest-auth.e
 
 For **AKAv1-MD5** against a real IMS core, use `register_aka_ims.xml` with `SIPP_IMS_DIGEST_FLAGS` / `lab-volte-01-ims.csv` and `-ap` set to `AKA_SECRET_HEX` (IK || CK).
 
+## Acceptance suite
+
+Run the full lab acceptance pipeline (122 Swift tests, CLI bootstrap, GUI smoke, optional SIPp):
+
+```bash
+chmod +x Tests/sipp/run-acceptance.sh Tests/gui/run-gui-smoke.sh
+./Tests/sipp/run-acceptance.sh
+```
+
+Individual steps:
+
+```bash
+swift test                    # all unit + integration tests
+./Tests/gui/run-gui-smoke.sh  # GUI build + ViewModel tests only
+```
+
 ## Quick start (SIPp UAS + UAC loopback)
 
 Terminal 1 — mock P-CSCF:

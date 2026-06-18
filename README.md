@@ -1,6 +1,6 @@
 # SICLient
 
-IMS SIP Client for macOS Tahoe (Swift 6). Phase 3 adds RTP/RTCP media, lab audio codec framing, DTMF, ViLTE SDP, and hold/resume on top of Phase 2 session control.
+IMS SIP Client for macOS Tahoe (Swift 6). VoLTE/IMS registration, session control, media, emergency/SMS/XCAP services, and a SwiftUI lab GUI — with **122 automated tests** and novice-friendly inline documentation throughout the codebase.
 
 ## Requirements
 
@@ -10,88 +10,124 @@ IMS SIP Client for macOS Tahoe (Swift 6). Phase 3 adds RTP/RTCP media, lab audio
 ## Build
 
 ```bash
-swift build
+make                    # build CLI + GUI (default)
+make build-cli          # CLI only
+make build-gui          # GUI only
+swift build             # equivalent to make build
+```
+
+Or directly:
+
+```bash
+swift build                    # CLI + core library + GUI
+swift build --product siclient # CLI only
+swift build --product siclient-gui
 ```
 
 ## Test
 
 ```bash
-swift test
+make test               # all 122 tests
+make test-core          # core only (107)
+make test-gui           # GUI + CLI smoke (15)
+make test-filter FILTER=RegistrationTests
+make acceptance         # full acceptance suite
+make gui-smoke          # GUI build + ViewModel tests
 ```
 
-60 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, resilience, performance NFRs, and loopback mock IMS.
+Or directly:
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `SICLientCoreTests` | 107 | SIP, registration, sessions, media, resilience, Phase 5/6, feature matrix |
+| `SICLientGUITests` | 15 | SwiftUI ViewModel flows, accessibility IDs, CLI subprocess smoke |
 
 ## Run
+
+### CLI
 
 **Dry run (bootstrap only):**
 
 ```bash
-swift run siclient --profile profiles/lab-volte-01.json --dry-run
+make dry-run
+# or: swift run siclient --profile profiles/lab-volte-01.json --dry-run
 ```
 
-**Register against lab P-CSCF (requires reachable P-CSCF in profile):**
+**Register against lab P-CSCF:**
 
 ```bash
-swift run siclient --profile profiles/lab-volte-01.json
+make register
+# or: swift run siclient --profile profiles/lab-volte-01.json
 ```
 
 **MO call with media stats, hold, and DTMF:**
 
 ```bash
-swift run siclient --profile profiles/lab-volte-01.json \
-  --mo-call sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org \
-  --call-duration 5 --hold --dtmf 5
+make mo-call MO_DEST=sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org CALL_DURATION=5 HOLD=1 DTMF=5
 ```
 
-Profile `media` block controls RTP transport (`udp` | `loopback`), local port, FFmpeg codec, and AVAudioEngine I/O.
-
-**Register then originate MO call (requires registered P-CSCF + callee):**
+**Emergency, SMS, call forwarding:**
 
 ```bash
-swift run siclient --profile profiles/lab-volte-01.json \
-  --mo-call sip:001010987654321@ims.mnc001.mcc001.3gppnetwork.org
+swift run siclient --profile profiles/lab-volte-01.json --emergency-call
+swift run siclient --profile profiles/lab-volte-01.json --send-sms tel:+15551212 "hello"
+swift run siclient --profile profiles/lab-volte-01.json --set-call-forwarding tel:+15559876
+swift run siclient --profile profiles/lab-volte-01.json --fetch-call-forwarding
 ```
 
-**Register then deregister:**
+### GUI (lab console)
 
 ```bash
-swift run siclient --profile profiles/lab-volte-01.json --deregister
+make run-gui
+# or: swift run siclient-gui
 ```
 
-Point `pcscf.address` / `pcscf.port` at your lab IMS or use the in-process `LoopbackSIPTransport` + `MockIMSResponder` in tests.
+Load a profile path, register, place calls, hold/resume, DTMF, SMS, CFU, and emergency call from the SwiftUI window. ViewModel logic is covered by `SICLientGUITests`; controls expose `gui.*` accessibility IDs for future XCUITest.
+
+Point `pcscf.address` / `pcscf.port` at your lab IMS or use in-process `LoopbackSIPTransport` + mock responders in tests.
 
 ## Project Layout
 
 ```
 Sources/SICLientCore/
-  Config/           Operator profiles
-  Diagnostics/      JSON logging, secret redaction
-  Platform/         SIM, network, bearer, PANI adapters
-  SIP/              Parser, serializer, Digest auth, client transaction
-  Transport/        UDP/TCP/TLS, loopback mock
-  Security/         Security association policy
-  Registration/     REGISTER FSM, context, request builder
-  Session/          INVITE FSM, PRACK, BYE, CallService, hold/resume
+  Config/           Operator profiles, validation, hot-reload
+  Diagnostics/      JSON logging, secret redaction, PCAP export
+  Platform/         SIM, network, bearer, PANI, discovery
+  SIP/              Parser, serializer, Digest auth, transactions
+  Transport/        UDP/TCP/TLS, fallback, loopback mocks
+  Security/         TLS pinning, secure memory, SA policy
+  Registration/     REGISTER FSM, retry, keep-alive
+  Session/          INVITE FSM, PRACK, BYE, CallService, concurrent calls
   Media/            SDP, preconditions, RTP/RTCP, codecs, DTMF
+  Emergency/        Priority REGISTER + emergency INVITE
+  SMS/              SIP MESSAGE (RP-DATA payload option)
+  Supplementary/    XCAP call forwarding
+  Handover/         eSRVCC hooks
   Bootstrap/        Application entry wiring
 Sources/siclient/   CLI executable
-Tests/              Unit + registration/session integration tests
-Tests/sipp/         SIPp XML scenarios for lab conformance
+Sources/SICLientGUI/  SwiftUI views + ClientViewModel
+Sources/siclient-gui/ macOS GUI executable
+Tests/SICLientCoreTests/  Core unit + integration tests
+Tests/SICLientGUITests/   GUI ViewModel + CLI smoke tests
+Tests/gui/          GUI smoke script
+Tests/sipp/         SIPp XML scenarios + acceptance script
 profiles/           Operator JSON profiles
 schema/             JSON schema
-docs/               Architecture and ADRs
+docs/               Architecture, API, integration, interop runbook
 ```
 
-## Registration Flow (Phase 1)
+Source files include file headers and doc comments explaining IMS concepts for newcomers — start with `CallService.swift` or `RegistrationFSM.swift`.
+
+## Registration Flow
 
 1. Send unprotected `REGISTER` with `Security-Client`, P-headers, empty Digest
 2. Receive `401` with `WWW-Authenticate` (RAND/AUTN)
-3. Run IMS-AKA via `LabSimAdapter` → RES
+3. Run IMS-AKA via `LabSimAdapter` → RES (or AUTS on sync failure)
 4. Send authenticated `REGISTER` with `Authorization`
 5. Parse `200 OK` → `Service-Route`, `P-Associated-URI`, `Expires`
 6. Schedule re-register at 80% of expiry; send CRLF keep-alive
 
-## Call Flow (Phase 2)
+## Call Flow
 
 1. Request dedicated bearer (QCI=1) via `BearerAdapter`
 2. MO: `INVITE` with SDP offer + precondition attrs, `Route: Service-Route`
@@ -100,48 +136,17 @@ docs/               Architecture and ADRs
 5. Receive `200 OK` → send `ACK` → call active
 6. `BYE` → `200 OK` → release bearer
 
-MT incoming INVITE waits for network `PRACK` and `UPDATE` before sending `200 OK` (via `InviteServerTransaction`).
+MT incoming INVITE waits for network `PRACK` and `UPDATE` before sending `200 OK`.
 
-## Media (Phase 3)
-
-After call establishment, `SessionFSM` optionally starts a `MediaSession` (inject `mediaTransportFactory`):
-
-1. Parse remote RTP endpoint from negotiated SDP
-2. Start RTP audio pump (20 ms frames) + RTCP sender reports
-3. `CallService.hold()` / `resume()` — re-INVITE with `sendonly` / `sendrecv`
-4. `CallService.mediaStats()` — packets sent/received, loss, jitter
-
-Lab codec uses AMR-WB RTP framing without licensed compression (interop testing).
-
-## Resilience (Phase 4)
+## Phase 4 — Resilience
 
 - `CallService.handleNetworkPathChange()` — re-register after IP/RAT change
-- `FallbackSIPTransport` — UDP with automatic TCP fallback when payload exceeds `resilience.mtu_bytes`
+- `FallbackSIPTransport` — UDP with TCP fallback when payload exceeds `resilience.mtu_bytes`
 - Registration retry on 408/503 with exponential backoff
 - OPTIONS keep-alive on TCP/TLS; CRLF on UDP
-- Network recovery after failed re-register (profile `network_recovery_timeout_sec`)
+- Registration loss terminates active calls (BYE)
 
-Profile `resilience` block:
-
-```json
-{
-  "resilience": {
-    "mtu_bytes": 1300,
-    "max_registration_retries": 3,
-    "network_recovery_timeout_sec": 30
-  }
-}
-```
-
-Full acceptance suite:
-
-```bash
-./Tests/sipp/run-acceptance.sh
-```
-
-See `docs/integration-guide.md` and `docs/api-reference.md`.
-
-## Phase 5 Services
+## Phase 5 — Services
 
 | Feature | API | Profile flag |
 |---|---|---|
@@ -154,53 +159,51 @@ See `docs/integration-guide.md` and `docs/api-reference.md`.
 
 Premium profile: `profiles/lab-volte-evs-premium.json`
 
-```bash
-swift run siclient --profile profiles/lab-volte-01.json --emergency-call
-swift run siclient --profile profiles/lab-volte-01.json --send-sms tel:+15551212 "hello"
-swift run siclient --profile profiles/lab-volte-01.json --set-call-forwarding tel:+15559876
-```
+## Phase 6 — Production Readiness (lab)
 
-## Phase 3 Exit Gate
+| Feature | Key types |
+|---|---|
+| AUTS resync REGISTER | `RegistrationFSM`, `DigestCredentials.auts` |
+| TLS + cert pinning | `TLSTransport`, `TLSConfiguration` |
+| PCO/DHCP + DNS SRV discovery | `IMSDiscovery`, `ProductionNetworkAdapter` |
+| Concurrent calls (1 active + 1 held) | `SessionFSM.heldSession` |
+| Keychain SIM | `KeychainSimAdapter`, `SimAdapterFactory` |
+| Profile hot-reload, PCAP, key zeroization | `ProfileManager`, `PcapExporter`, `SecureMemory` |
+| SMS RP-DATA, XCAP digest, eSRVCC REFER | `SMSPayloadBuilder`, `XCAPDigestAuth`, `ESRVCCCoordinator` |
 
-- [x] RTP/RTCP packet format + stream stats
-- [x] Loopback RTP media during MO call
-- [x] DTMF telephone-event encoding
-- [x] H.264 video SDP m-line + ViLTE RTP stats stub
-- [x] Hold/resume re-INVITE signaling
-- [x] Production UDP RTP transport (`UDPRTPTransport`)
-- [x] AMR/AMR-WB via FFmpeg subprocess (`use_ffmpeg_codec`) or lab framing stub
-- [x] Lab two-way audio path (`enable_audio_io` + `AudioIODevice`)
+See `docs/operator-interop-runbook.md` for operator lab validation.
 
 ## SIPp Conformance
 
-See `Tests/sipp/README.md` for full details.
+See `Tests/sipp/README.md`.
 
 ```bash
-chmod +x Tests/sipp/run-*.sh
+chmod +x Tests/sipp/run-*.sh Tests/gui/run-gui-smoke.sh
+
+# Full acceptance (tests + CLI + GUI + optional SIPp)
+./Tests/sipp/run-acceptance.sh
 
 # REGISTER (two terminals)
 ./Tests/sipp/run-uas.sh 127.0.0.1 15060
 ./Tests/sipp/run-register.sh 127.0.0.1:15060
 
 # MO VoLTE with preconditions
-./Tests/sipp/run-uas-volte.sh 127.0.0.1 15060    # terminal 1
-./Tests/sipp/run-mo-call.sh 127.0.0.1:15060      # terminal 2
-
-# MT VoLTE (single script: UAS + caller)
-./Tests/sipp/run-mt-call.sh 127.0.0.1 15061
+./Tests/sipp/run-uas-volte.sh 127.0.0.1 15060
+./Tests/sipp/run-mo-call.sh 127.0.0.1:15060
 ```
 
-## Phase 2 Exit Gate
+## Documentation
 
-- [x] SDP offer/answer (AMR-WB, AMR, telephone-event)
-- [x] RFC 3312 preconditions in SDP + profile gating
-- [x] MO/MT INVITE → 183 → PRACK → 200 → ACK → BYE
-- [x] Bearer request/release on call lifecycle
-- [x] `Service-Route` on MO INVITE
-- [x] SIPp MO/MT scenarios pass loopback
-- [x] 30 Swift tests green
-
-IPSec-3GPP is deferred per ADR 0001; TLS profile is the default lab path. RTP media is Phase 3.
+| Document | Purpose |
+|---|---|
+| [docs/user-guide.md](docs/user-guide.md) | **End-user guide** — CLI and GUI usage, workflows, troubleshooting |
+| [docs/deployment-guide.md](docs/deployment-guide.md) | **Deployment guide** — build, install, configure, operate |
+| `spec.md` | Functional spec, acceptance criteria, phase checklist |
+| `docs/ARCHITECTURE.md` | Module map and dependency direction |
+| `docs/api-reference.md` | Public `SICLientCore` + GUI API surface |
+| `docs/integration-guide.md` | Host app integration for developers |
+| `docs/operator-interop-runbook.md` | Operator IMS lab validation steps |
+| `docs/adr/0001-swift-platform-and-sip-stack.md` | Platform and IPSec deferral ADR |
 
 ## License
 

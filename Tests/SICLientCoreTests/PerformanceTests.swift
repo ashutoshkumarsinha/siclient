@@ -1,7 +1,17 @@
+// PerformanceTests.swift
+//
+// Verifies non-functional requirements (NFRs) for registration and call-setup latency.
+// Carriers specify maximum times for attach-to-registered and MO call establishment;
+// these tests ensure the client meets those targets in the lab loopback environment.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Registration latency
+
+/// Full REGISTER flow (401 challenge + AKA + 200 OK) must complete within the NFR budget
+/// so users don't wait excessively after LTE attach before VoLTE is available.
 @Test func registrationMeetsNFRTarget() async throws {
     let profile = try loadFixtureProfile()
     let state = MockPCSCFState()
@@ -20,6 +30,10 @@ import Testing
     #expect(PerformanceBenchmarks.meetsRegistrationTarget(durationMs))
 }
 
+// MARK: - Call setup latency
+
+/// Mobile-originated call setup (INVITE through 200 OK) must meet the NFR target.
+/// Slow setup directly affects perceived call quality and network KPIs.
 @Test func moCallSetupMeetsNFRTarget() async throws {
     let profile = try loadFixtureProfile()
     let state = MockIMSState()

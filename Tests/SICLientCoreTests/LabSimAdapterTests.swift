@@ -1,7 +1,17 @@
+// LabSimAdapterTests.swift
+//
+// Verifies the lab SIM adapter that emulates USIM AKA authentication without real
+// hardware. In IMS, every REGISTER challenge (RAND/AUTN from the P-CSCF) must be
+// answered with RES/IK/CK from the SIM — these tests use preloaded test vectors.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - AKA vector lookup
+
+/// When the P-CSCF sends a known RAND/AUTN pair from the lab profile, the adapter
+/// must return the matching RES, IK, and CK so Digest authentication succeeds.
 @Test func labSimReturnsVectorForKnownChallenge() throws {
     let profile = try loadFixtureProfile()
     guard let labSim = profile.labSim else {
@@ -32,6 +42,8 @@ import Testing
     #expect(ck.hexLowercase == vector.ck.lowercased())
 }
 
+/// Unknown RAND/AUTN pairs (not in the test vector table) should fail cleanly,
+/// just as a real SIM would reject an invalid network challenge.
 @Test func labSimRejectsUnknownChallenge() throws {
     let profile = try loadFixtureProfile()
     guard let labSim = profile.labSim else {

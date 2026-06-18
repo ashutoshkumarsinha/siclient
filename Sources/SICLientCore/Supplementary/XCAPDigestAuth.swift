@@ -1,17 +1,26 @@
 import Foundation
 import CommonCrypto
 
+// MARK: - File Overview
+// HTTP Digest authentication for XCAP (XML Configuration Access Protocol) requests.
+// XCAP is used to read and write supplementary service settings (e.g. call forwarding)
+// stored as XML documents on the operator's server.
+
+/// Username and password used for XCAP HTTP Digest authentication.
 public struct XCAPDigestCredentials: Sendable, Equatable {
     public var username: String
     public var password: String
 
+    /// Creates digest credentials for XCAP requests.
     public init(username: String, password: String) {
         self.username = username
         self.password = password
     }
 }
 
+/// Computes HTTP Digest Authorization headers for XCAP GET/PUT requests.
 public enum XCAPDigestAuth {
+    /// Builds a Digest Authorization header value for the given method and path.
     public static func authorizationHeader(
         method: String,
         path: String,
@@ -36,22 +45,26 @@ public enum XCAPDigestAuth {
     }
 }
 
+/// XCAP transport wrapper that attaches Digest auth headers (header is computed but not yet sent).
 public struct DigestXCAPTransport: XCAPTransport {
     private let inner: any XCAPTransport
     private let credentials: XCAPDigestCredentials
     private let realm: String
 
+    /// Wraps an inner transport and stores digest credentials for auth header generation.
     public init(wrapping inner: any XCAPTransport, credentials: XCAPDigestCredentials, realm: String? = nil) {
         self.inner = inner
         self.credentials = credentials
         self.realm = realm ?? "xcap"
     }
 
+    /// Performs a GET with digest auth header computed (lab: header not attached to request yet).
     public func get(url: URL) async throws -> (statusCode: Int, body: String) {
         _ = XCAPDigestAuth.authorizationHeader(method: "GET", path: url.path, credentials: credentials, realm: realm)
         return try await inner.get(url: url)
     }
 
+    /// Performs a PUT with digest auth header computed (lab: header not attached to request yet).
     public func put(url: URL, body: String, contentType: String) async throws -> Int {
         _ = XCAPDigestAuth.authorizationHeader(method: "PUT", path: url.path, credentials: credentials, realm: realm)
         return try await inner.put(url: url, body: body, contentType: contentType)

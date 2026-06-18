@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// SIP (Session Initiation Protocol) messages are text-based, similar to HTTP.
+// Each message has a start line, headers, and an optional body (often SDP for media).
+// This file defines the data structures and a parser/serializer for raw SIP traffic.
+
+/// A single SIP header name/value pair (e.g. `From: <sip:alice@home.com>`).
 public struct SIPHeader: Sendable, Equatable {
     public let name: String
     public let value: String
@@ -10,6 +17,7 @@ public struct SIPHeader: Sendable, Equatable {
     }
 }
 
+/// Mutable collection of SIP headers with case-insensitive lookup.
 public struct SIPHeaders: Sendable, Equatable {
     private var entries: [SIPHeader]
 
@@ -17,34 +25,42 @@ public struct SIPHeaders: Sendable, Equatable {
         self.entries = entries
     }
 
+    /// All headers in insertion order.
     public var all: [SIPHeader] { entries }
 
+    /// Returns the value of the first header with the given name, or nil.
     public subscript(_ name: String) -> String? {
         first(name)?.value
     }
 
+    /// Returns the first header matching the given name (case-insensitive).
     public func first(_ name: String) -> SIPHeader? {
         entries.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
+    /// Returns all values for a header that may appear multiple times (e.g. Via).
     public func allValues(_ name: String) -> [String] {
         entries.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }.map(\.value)
     }
 
+    /// Replaces any existing header with the same name, then sets the new value.
     public mutating func set(_ name: String, value: String) {
         entries.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
         entries.append(SIPHeader(name: name, value: value))
     }
 
+    /// Appends a header without removing existing ones (for multi-value headers).
     public mutating func append(_ name: String, value: String) {
         entries.append(SIPHeader(name: name, value: value))
     }
 
+    /// Removes all headers with the given name.
     public mutating func remove(_ name: String) {
         entries.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 }
 
+/// An outgoing or incoming SIP request (e.g. REGISTER, INVITE, BYE).
 public struct SIPRequest: Sendable, Equatable {
     public var method: String
     public var requestURI: String
@@ -61,6 +77,7 @@ public struct SIPRequest: Sendable, Equatable {
     }
 }
 
+/// A SIP response to a request (e.g. `200 OK`, `401 Unauthorized`).
 public struct SIPResponse: Sendable, Equatable {
     public var version: String
     public var statusCode: Int
@@ -77,10 +94,12 @@ public struct SIPResponse: Sendable, Equatable {
     }
 }
 
+/// Discriminated union of a SIP request or response message.
 public enum SIPMessage: Sendable, Equatable {
     case request(SIPRequest)
     case response(SIPResponse)
 
+    /// Headers common to both requests and responses.
     public var headers: SIPHeaders {
         switch self {
         case .request(let request): request.headers
@@ -88,6 +107,7 @@ public enum SIPMessage: Sendable, Equatable {
         }
     }
 
+    /// Optional message body (SDP, XML, etc.).
     public var body: Data? {
         switch self {
         case .request(let request): request.body
@@ -96,6 +116,7 @@ public enum SIPMessage: Sendable, Equatable {
     }
 }
 
+/// Errors raised when parsing malformed SIP text.
 public enum SIPParserError: Error, Sendable, CustomStringConvertible {
     case emptyInput
     case invalidStartLine(String)
@@ -114,7 +135,9 @@ public enum SIPParserError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Parses raw bytes or text into structured SIP messages.
 public enum SIPParser {
+    /// Parses SIP message bytes (UTF-8 encoded text).
     public static func parse(_ data: Data) throws -> SIPMessage {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
             throw SIPParserError.emptyInput
@@ -122,8 +145,10 @@ public enum SIPParser {
         return try parse(text)
     }
 
+    /// Parses a SIP message string, splitting headers from body at the blank line.
     public static func parse(_ text: String) throws -> SIPMessage {
         let normalized = text.hasSuffix("\r\n") ? text : text + "\r\n"
+        // SIP uses CRLF; headers and body are separated by a blank line.
         guard let headerEnd = normalized.range(of: "\r\n\r\n") else {
             throw SIPParserError.missingHeaderSeparator
         }
@@ -152,6 +177,7 @@ public enum SIPParser {
             bodyData = trimmed.isEmpty ? nil : Data(trimmed.utf8)
         }
 
+        // Responses start with "SIP/2.0"; requests start with a method name.
         if startLine.hasPrefix("SIP/") {
             let parts = startLine.split(separator: " ", maxSplits: 2).map(String.init)
             guard parts.count == 3, let code = Int(parts[1]) else {
@@ -166,11 +192,14 @@ public enum SIPParser {
     }
 }
 
+/// Serializes structured SIP messages back to on-the-wire text.
 public enum SIPSerializer {
+    /// Serializes a SIP message to UTF-8 bytes.
     public static func serialize(_ message: SIPMessage) -> Data {
         Data(serializeString(message).utf8)
     }
 
+    /// Serializes a SIP message to a CRLF-delimited string with Content-Length header.
     public static func serializeString(_ message: SIPMessage) -> String {
         switch message {
         case .request(let request):

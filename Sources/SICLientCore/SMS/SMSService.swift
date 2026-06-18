@@ -1,6 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+// Sends SMS (Short Message Service) over IMS (IP Multimedia Subsystem) using SIP
+// MESSAGE requests. Supports plain text or 3GPP binary SMS payloads.
+
+/// Builds a SIP MESSAGE request for SMS over IMS.
 public enum SMSRequestBuilder {
+    /// Creates a SIP MESSAGE with headers required for 3GPP SMS-over-IMS delivery.
     public static func makeMESSAGE(
         profile: OperatorProfile,
         impu: String,
@@ -38,10 +44,12 @@ public enum SMSRequestBuilder {
     }
 }
 
+/// Errors that can occur when sending SMS over IMS.
 public enum SMSError: Error, Sendable, CustomStringConvertible {
     case disabled
     case deliveryFailed(Int)
 
+    /// Human-readable error description.
     public var description: String {
         switch self {
         case .disabled: return "SMS over IMS is disabled in profile"
@@ -50,12 +58,14 @@ public enum SMSError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Sends text messages to a destination using SIP MESSAGE over IMS.
 public actor SMSService {
     private let profile: OperatorProfile
     private let platform: PlatformContext
     private let transport: any SIPTransport
     private let logger: Logger
 
+    /// Creates an SMS service wired to profile, platform, and SIP transport.
     public init(
         profile: OperatorProfile,
         platform: PlatformContext,
@@ -68,6 +78,7 @@ public actor SMSService {
         self.logger = logger
     }
 
+    /// Sends an SMS to the destination using the active IMS registration context.
     public func sendSMS(to destination: String, text: String, registration: RegistrationContext) async throws {
         guard profile.services.sms.enabled else { throw SMSError.disabled }
 

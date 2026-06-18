@@ -1,16 +1,25 @@
 import Foundation
 
+// MARK: - File Overview
+// Manages supplementary telephony services via XCAP (XML Configuration Access Protocol).
+// Currently supports call forwarding unconditional (CFU): read and update forwarding rules
+// stored as XML documents on the operator's configuration server.
+
+/// A call forwarding rule: whether it is active and where calls should be redirected.
 public struct CallForwardingRule: Sendable, Equatable {
     public var active: Bool
     public var target: String?
 
+    /// Creates a call forwarding rule with optional target URI.
     public init(active: Bool = false, target: String? = nil) {
         self.active = active
         self.target = target
     }
 }
 
+/// Parses and serializes XCAP XML documents for call forwarding settings.
 public enum CallForwardingDocument {
+    /// Reads a call forwarding rule from an XCAP XML document body.
     public static func parse(_ xml: String) -> CallForwardingRule {
         let active = xml.localizedCaseInsensitiveContains("active=\"true\"")
             || xml.localizedCaseInsensitiveContains("<active>true</active>")
@@ -18,6 +27,7 @@ public enum CallForwardingDocument {
         return CallForwardingRule(active: active, target: target)
     }
 
+    /// Builds an XCAP XML document for the given call forwarding rule.
     public static func serialize(rule: CallForwardingRule) -> String {
         let target = rule.target ?? ""
         let active = rule.active ? "true" : "false"
@@ -38,11 +48,13 @@ public enum CallForwardingDocument {
     }
 }
 
+/// Errors that can occur during XCAP supplementary service operations.
 public enum XCAPError: Error, Sendable, CustomStringConvertible {
     case disabled
     case requestFailed(Int)
     case invalidDocument
 
+    /// Human-readable error description.
     public var description: String {
         switch self {
         case .disabled: return "Supplementary services disabled in profile"
@@ -52,18 +64,24 @@ public enum XCAPError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Contract for HTTP GET/PUT of XCAP configuration documents.
 public protocol XCAPTransport: Sendable {
+    /// Fetches a document; returns HTTP status and body text.
     func get(url: URL) async throws -> (statusCode: Int, body: String)
+    /// Uploads a document; returns the HTTP status code.
     func put(url: URL, body: String, contentType: String) async throws -> Int
 }
 
+/// XCAP transport backed by URLSession for real HTTP requests.
 public struct URLSessionXCAPTransport: XCAPTransport {
     private let session: URLSession
 
+    /// Creates a transport using the given URLSession (defaults to shared).
     public init(session: URLSession = .shared) {
         self.session = session
     }
 
+    /// Fetches an XCAP document via HTTP GET.
     public func get(url: URL) async throws -> (statusCode: Int, body: String) {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -73,6 +91,7 @@ public struct URLSessionXCAPTransport: XCAPTransport {
         return (status, String(decoding: data, as: UTF8.self))
     }
 
+    /// Uploads an XCAP document via HTTP PUT.
     public func put(url: URL, body: String, contentType: String) async throws -> Int {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -83,13 +102,16 @@ public struct URLSessionXCAPTransport: XCAPTransport {
     }
 }
 
+/// In-memory XCAP transport for tests; stores documents keyed by URL string.
 public actor InMemoryXCAPTransport: XCAPTransport {
     private var documents: [String: String] = [:]
 
+    /// Creates an in-memory store, optionally pre-seeded with documents.
     public init(seed: [String: String] = [:]) {
         self.documents = seed
     }
 
+    /// Returns a stored document or 404 if not found.
     public func get(url: URL) async throws -> (statusCode: Int, body: String) {
         if let body = documents[url.absoluteString] {
             return (200, body)
@@ -97,6 +119,7 @@ public actor InMemoryXCAPTransport: XCAPTransport {
         return (404, "")
     }
 
+    /// Stores a document at the given URL.
     public func put(url: URL, body: String, contentType: String) async throws -> Int {
         _ = contentType
         documents[url.absoluteString] = body
@@ -104,23 +127,27 @@ public actor InMemoryXCAPTransport: XCAPTransport {
     }
 }
 
+/// Client for reading and updating supplementary services (call forwarding) via XCAP.
 public actor SupplementaryServicesClient {
     private let profile: OperatorProfile
     private let transport: any XCAPTransport
     private let logger: Logger
 
+    /// Creates a supplementary services client with profile, XCAP transport, and logger.
     public init(profile: OperatorProfile, transport: any XCAPTransport, logger: Logger) {
         self.profile = profile
         self.transport = transport
         self.logger = logger
     }
 
+    /// Builds the XCAP URL for call forwarding unconditional settings for the given IMPU.
     public func callForwardingUnconditionalURL(impu: String) -> URL? {
         guard profile.services.supplementary.enabled else { return nil }
         let encoded = impu.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? impu
         return URL(string: "\(profile.services.supplementary.xcapRootURI)/\(profile.services.supplementary.auid)/users/\(encoded)/servinfo.xml")
     }
 
+    /// Fetches the current call forwarding unconditional rule from XCAP.
     public func fetchCallForwarding(impu: String) async throws -> CallForwardingRule {
         guard profile.services.supplementary.enabled else { throw XCAPError.disabled }
         guard let url = callForwardingUnconditionalURL(impu: impu) else { throw XCAPError.invalidDocument }
@@ -129,6 +156,7 @@ public actor SupplementaryServicesClient {
         return CallForwardingDocument.parse(body)
     }
 
+    /// Updates call forwarding unconditional settings on the XCAP server.
     public func setCallForwarding(impu: String, rule: CallForwardingRule) async throws {
         guard profile.services.supplementary.enabled else { throw XCAPError.disabled }
         guard let url = callForwardingUnconditionalURL(impu: impu) else { throw XCAPError.invalidDocument }

@@ -1,7 +1,18 @@
+// ApplicationTests.swift
+//
+// Verifies the top-level Application entry point that wires together profile loading,
+// platform bootstrap, and structured logging. In a real IMS deployment this is the
+// same path the CLI or GUI uses to start a VoLTE session against a P-CSCF.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Bootstrap & dry-run
+
+/// Confirms that `--dry-run` loads a lab profile and emits JSON logs without touching
+/// the network or leaking AKA secrets. Operators rely on dry-run to validate profiles
+/// before attaching to a live IMS core.
 @Test func applicationDryRunEmitsStructuredLog() async throws {
     let profileURL = fixtureURL(named: "lab-volte-01.json")
     let collector = LineCollector()

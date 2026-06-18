@@ -1,6 +1,13 @@
 import Foundation
 import SICLientCore
 
+// MARK: - File Overview
+//
+// Command-line entry point for the siclient IMS SIP client. Parses arguments,
+// maps them to ApplicationOptions, and delegates to Application.run() for the
+// actual IMS registration and call flows.
+
+/// Parsed command-line flags for a single siclient invocation.
 struct CLIOptions {
     let profilePath: String
     let dryRun: Bool
@@ -17,6 +24,7 @@ struct CLIOptions {
     let setCallForwardingTarget: String?
 }
 
+/// Errors from CLI argument parsing.
 enum CLIError: Error, CustomStringConvertible {
     case missingProfile
     case missingArgument(String)

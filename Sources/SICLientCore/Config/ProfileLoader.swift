@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File overview
+//
+// Loads and validates operator profile JSON files. An operator profile describes
+// how this IMS (IP Multimedia Subsystem) client connects to a carrier network:
+// P-CSCF (Proxy Call Session Control Function) address, security, codecs, and timers.
+
+/// Errors that can occur while loading a profile from disk.
 public enum ProfileLoaderError: Error, Sendable, CustomStringConvertible {
     case fileNotFound(String)
     case readFailed(String, underlying: Error)
@@ -20,7 +27,9 @@ public enum ProfileLoaderError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Reads operator profile JSON from a file URL, decodes it, and validates fields.
 public enum ProfileLoader {
+    /// Loads, decodes, and validates a profile from a file URL.
     public static func load(from url: URL) throws -> OperatorProfile {
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else {
@@ -51,6 +60,7 @@ public enum ProfileLoader {
         return profile
     }
 
+    /// Convenience loader that accepts a filesystem path string.
     public static func load(fromPath path: String) throws -> OperatorProfile {
         let url = URL(fileURLWithPath: path)
         return try load(from: url)

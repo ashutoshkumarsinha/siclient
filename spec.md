@@ -14,16 +14,17 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v1.2 — Phases 0–6 implemented in `SICLientCore` (70 Swift tests, SIPp signaling conformance). See **§14** for lab vs production fidelity.
+**Document status:** v1.3 — Phases 0–6 implemented; **122 Swift tests** (core + GUI), SIPp signaling conformance, novice-friendly code comments. See **§14** for lab vs production fidelity.
 
 **Implementation snapshot (2026-06-18)**
 
 | Metric | Value |
 |---|---|
-| Swift tests | 70 (mock/loopback CI) |
+| Swift tests | 122 (107 core + 15 GUI/CLI smoke) |
 | SIPp scenarios | 8 XML + acceptance script |
 | Profiles | `lab-volte-01.json`, `lab-volte-evs-premium.json` |
 | CLI | register, MO call, hold/DTMF, emergency, SMS, XCAP CFU |
+| GUI | `siclient-gui` SwiftUI lab console |
 | Platform | macOS 26 (Tahoe), Swift 6.2+ |
 
 ---
@@ -48,7 +49,7 @@ This document defines the system requirements, architecture, signaling complianc
 - RCS / MSRP messaging
 - Full IMS conferencing (RFC 4579)
 - Production SIM OTA provisioning tools
-- Ut / XCAP **management UI** (API exists; no GUI)
+- Ut / XCAP **full management UI** (lab SwiftUI console exists; not a production Ut client)
 - Licensed EVS / AMR codec distribution (integrator supplies)
 - macOS-native IPSec-UE APIs (see ADR 0001)
 
@@ -496,10 +497,12 @@ The following must pass before a **production** release candidate:
 
 | Layer | Approach | Status |
 |---|---|---|
-| **Unit** | AKA vectors, SDP, headers, FSM, resilience, Phase 5 builders | 60 tests in CI |
+| **Unit** | AKA vectors, SDP, headers, FSM, resilience, Phase 5/6 builders | 107 core tests in CI |
+| **Feature matrix** | `FeatureCoverageTests` — registration, security, discovery, emergency, SMS, concurrent calls | **Lab** — 37 scenarios |
+| **GUI** | `SICLientGUITests` — ViewModel flows, accessibility IDs, CLI subprocess smoke | **Lab** — 15 tests |
 | **Integration** | `MockPCSCFResponder`, `MockIMSResponder`, loopback transports | **Complete** |
 | **Conformance** | SIPp XML (when `sipp` installed in CI) | **Lab** — signaling only |
-| **Acceptance** | `Tests/sipp/run-acceptance.sh` | **Complete** |
+| **Acceptance** | `Tests/sipp/run-acceptance.sh`, `Tests/gui/run-gui-smoke.sh` | **Complete** |
 | **Performance** | `PerformanceTests` vs §5.1 NFR targets | **Lab** — loopback timing |
 | **Interop** | Operator IMS + real UE | **Not started** |
 | **Media** | RTP loopback, RTCP SR/RR, UDP RTP unit test | **Lab** — no SIPp RTP |
@@ -519,9 +522,23 @@ The following must pass before a **production** release candidate:
 **Run locally**
 
 ```bash
-swift test
+swift test                              # 122 tests
+swift test --filter SICLientGUITests    # GUI + CLI smoke
+./Tests/gui/run-gui-smoke.sh
 ./Tests/sipp/run-acceptance.sh
 ```
+
+**Test file inventory (core)**
+
+| File | Focus |
+|---|---|
+| `FeatureCoverageTests.swift` | Broad feature matrix across all phases |
+| `Phase5Tests.swift` / `Phase6Tests.swift` | Phase exit gates |
+| `RegistrationTests.swift` / `SessionTests.swift` | REGISTER and INVITE FSM |
+| `MediaTests.swift` / `ResilienceTests.swift` | RTP, transport fallback, retry |
+| `SICLientGUITests/` | GUI ViewModel + CLI integration |
+
+Source files include file headers and doc comments for novice readers.
 
 ---
 
@@ -917,6 +934,8 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | [x] | P6.9 | SMS RP-DATA, XCAP digest, eSRVCC REFER | `SMSPayloadBuilder`, `XCAPDigestAuth`, `ESRVCCCoordinator` | **Lab** |
 | [x] | P6.10 | Hot-reload, pcap, key zeroization | `ProfileManager`, `PcapExporter`, `SecureAKAContext` | **Lab** |
 | [x] | P6.11 | Phase 6 unit tests | `Phase6Tests.swift` (10 tests) | **Lab** |
+| [x] | P6.12 | Feature coverage + GUI tests | `FeatureCoverageTests.swift`, `SICLientGUITests` | **Lab** |
+| [x] | P6.13 | Novice code documentation | File headers + `///` on public API | **Complete** |
 
 ---
 
@@ -1024,9 +1043,12 @@ siclient --profile <path> [--fetch-call-forwarding | --set-call-forwarding <targ
 | Document | Purpose |
 |---|---|
 | `README.md` | Build, test, quick start |
+| `docs/user-guide.md` | End-user CLI/GUI guide, workflows, troubleshooting |
+| `docs/deployment-guide.md` | Build, install, configure, operate |
 | `docs/ARCHITECTURE.md` | Module layout |
 | `docs/adr/0001-swift-platform-and-sip-stack.md` | Swift/TLS/IPSec decisions |
 | `docs/integration-guide.md` | Host integration |
+| `docs/operator-interop-runbook.md` | Operator IMS lab validation |
 | `docs/api-reference.md` | Public API index |
 | `schema/profile.schema.json` | Profile validation |
 
@@ -1048,3 +1070,5 @@ siclient --profile <path> [--fetch-call-forwarding | --set-call-forwarding <targ
 | v1.0 | 2026-06-16 | Phase 5 complete: emergency, SMS, XCAP, handover hooks, EVS premium; 60 tests |
 | v1.1 | 2026-06-18 | Honest fidelity model (§0.3–0.4); split lab/production acceptance (§8); Phase 6 roadmap (§14); profile schema sync |
 | v1.2 | 2026-06-18 | Phase 6 complete: AUTS, TLS, discovery, concurrent calls, Keychain SIM, ops hooks; 70 tests |
+| v1.3 | 2026-06-18 | Feature coverage + GUI tests (122 total); `siclient-gui`; novice code comments; updated docs/scripts |
+| v1.4 | 2026-06-18 | User guide + deployment guide; Makefile |

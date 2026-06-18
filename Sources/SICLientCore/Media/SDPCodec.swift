@@ -1,11 +1,18 @@
 import Foundation
 
+// MARK: - File Overview
+// Defines the audio codecs used in VoLTE calls and maps them to SDP attribute lines.
+// SDP (Session Description Protocol) uses rtpmap/fmtp lines to tell the remote party
+// which codec numbers and settings to use.
+
+/// Supported audio codecs for VoLTE media sessions.
 public enum AudioCodec: String, Sendable, CaseIterable {
     case evs = "EVS"
     case amrWB = "AMR-WB"
     case amr = "AMR"
     case telephoneEvent = "telephone-event"
 
+    /// Sample rate in Hz used by RTP (Real-time Transport Protocol) timestamps for this codec.
     public var clockRate: Int {
         switch self {
         case .evs, .amrWB: return 16000
@@ -13,6 +20,7 @@ public enum AudioCodec: String, Sendable, CaseIterable {
         }
     }
 
+    /// RTP payload type number assigned to this codec in SDP.
     public var payloadType: Int {
         switch self {
         case .evs: return 110
@@ -22,6 +30,7 @@ public enum AudioCodec: String, Sendable, CaseIterable {
         }
     }
 
+    /// Converts profile codec name strings into typed codec values, always including DTMF support.
     public static func fromProfile(_ names: [String]) -> [AudioCodec] {
         var codecs: [AudioCodec] = []
         for name in names {
@@ -39,11 +48,14 @@ public enum AudioCodec: String, Sendable, CaseIterable {
     }
 }
 
+/// Builds SDP rtpmap and fmtp lines for audio codecs.
 public enum SDPCodecMapper {
+    /// Returns the `a=rtpmap:` line linking payload type to codec name and clock rate.
     public static func rtpmapLine(codec: AudioCodec) -> String {
         "a=rtpmap:\(codec.payloadType) \(codec.rawValue)/\(codec.clockRate)"
     }
 
+    /// Returns the optional `a=fmtp:` line with codec-specific parameters, if any.
     public static func fmtpLine(codec: AudioCodec) -> String? {
         switch codec {
         case .evs:

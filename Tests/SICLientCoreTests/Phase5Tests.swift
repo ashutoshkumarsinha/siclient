@@ -1,7 +1,17 @@
+// Phase5Tests.swift
+//
+// Verifies Phase 5 IMS features: emergency registration/calls, SMS over SIP MESSAGE,
+// XCAP supplementary services (call forwarding), EVS codec, STIR/SHAKEN identity,
+// and eSRVCC handover hooks. These are carrier-mandatory services beyond basic VoLTE.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Emergency services
+
+/// Emergency REGISTER must carry Priority, Resource-Priority, P-Emergency-Info, and
+/// +g.3gpp.emergency in Contact so the IMS routes the UE to PSAP even if unregistered.
 @Test func emergencyRegisterIncludesPriorityHeaders() throws {
     var profile = try loadFixtureProfile()
     profile.services.emergency.enabled = true
@@ -24,6 +34,10 @@ import Testing
     #expect(request.headers["Contact"]?.contains("+g.3gpp.emergency") == true)
 }
 
+// MARK: - SMS over IMS
+
+/// SIP MESSAGE for SMS must include the icsi.sms feature tag in Accept-Contact so the
+/// SMSC knows this is a 3GPP SMS-over-IMS session, not a generic instant message.
 @Test func smsMessageBuilderIncludesICSI() throws {
     var profile = try loadFixtureProfile()
     profile.services.sms.enabled = true
@@ -45,45 +59,8 @@ import Testing
     #expect(String(decoding: message.body ?? Data(), as: UTF8.self) == "Hello IMS")
 }
 
-@Test func callForwardingDocumentRoundTrip() {
-    let rule = CallForwardingRule(active: true, target: "tel:+15559876")
-    let xml = CallForwardingDocument.serialize(rule: rule)
-    let parsed = CallForwardingDocument.parse(xml)
-    #expect(parsed.active)
-    #expect(parsed.target == "tel:+15559876")
-}
-
-@Test func evsCodecAppearsInPremiumOffer() throws {
-    var profile = try loadFixtureProfile()
-    profile.codecs.audio = ["EVS", "AMR-WB", "AMR"]
-    let offer = SDPSessionBuilder.voLTEOffer(
-        profile: profile,
-        localIP: "127.0.0.1",
-        audioPort: 40000
-    )
-    let text = offer.serialize()
-    #expect(text.contains("a=rtpmap:110 EVS/16000"))
-    #expect(offer.media.first?.formats.first == "110")
-    #expect(SDPParser.offeredAudioCodecs(offer).contains(.evs))
-}
-
-@Test func labEvsCodecEngineFraming() {
-    let engine = LabEVSCodecEngine()
-    let payload = engine.encodePCM(Data(repeating: 0x11, count: 64))
-    #expect(!payload.isEmpty)
-    #expect(engine.codec == .evs)
-}
-
-@Test func stirShakIdentityAttachedWhenEnabled() throws {
-    var profile = try loadFixtureProfile()
-    profile.services.handover.stirShakEnabled = true
-    profile.services.handover.labIdentityHeader = "eyJ0eXAiOiJwYXNwb3J0IiwicGF5bG9hZCI6ImxhYiJ9"
-
-    var headers = SIPHeaders()
-    STIRSHAKPolicy.attachIdentity(to: &headers, profile: profile)
-    #expect(headers["Identity"]?.hasPrefix("eyJ") == true)
-}
-
+/// End-to-end SMS send after registration proves the MESSAGE transaction completes
+/// against the mock IMS core (RP-DATA encapsulation handled internally).
 @Test func sendSMSOverLoopbackIMS() async throws {
     var profile = try loadFixtureProfile()
     profile.services.sms.enabled = true
@@ -106,6 +83,20 @@ import Testing
     try await service.sendSMS(to: "tel:+15551212", text: "Phase 5 SMS")
 }
 
+// MARK: - Supplementary services (XCAP)
+
+/// Call forwarding rules are stored as XCAP XML documents; serialize/parse must
+/// preserve active flag and target number for CFU (Call Forwarding Unconditional).
+@Test func callForwardingDocumentRoundTrip() {
+    let rule = CallForwardingRule(active: true, target: "tel:+15559876")
+    let xml = CallForwardingDocument.serialize(rule: rule)
+    let parsed = CallForwardingDocument.parse(xml)
+    #expect(parsed.active)
+    #expect(parsed.target == "tel:+15559876")
+}
+
+/// Setting and fetching call forwarding via in-memory XCAP proves the supplementary
+/// service API works after IMS registration (used by carrier self-care apps).
 @Test func supplementaryCallForwardingInMemoryXCAP() async throws {
     var profile = try loadFixtureProfile()
     profile.services.supplementary.enabled = true
@@ -134,6 +125,51 @@ import Testing
     #expect(rule.target == "tel:+100")
 }
 
+// MARK: - EVS codec
+
+/// Premium profiles prefer EVS (Enhanced Voice Services) for HD voice; the SDP offer
+/// must advertise EVS payload type 110 ahead of legacy AMR codecs.
+@Test func evsCodecAppearsInPremiumOffer() throws {
+    var profile = try loadFixtureProfile()
+    profile.codecs.audio = ["EVS", "AMR-WB", "AMR"]
+    let offer = SDPSessionBuilder.voLTEOffer(
+        profile: profile,
+        localIP: "127.0.0.1",
+        audioPort: 40000
+    )
+    let text = offer.serialize()
+    #expect(text.contains("a=rtpmap:110 EVS/16000"))
+    #expect(offer.media.first?.formats.first == "110")
+    #expect(SDPParser.offeredAudioCodecs(offer).contains(.evs))
+}
+
+/// The lab EVS codec engine must produce non-empty RTP payloads from PCM input for
+/// media session tests without requiring FFmpeg in CI.
+@Test func labEvsCodecEngineFraming() {
+    let engine = LabEVSCodecEngine()
+    let payload = engine.encodePCM(Data(repeating: 0x11, count: 64))
+    #expect(!payload.isEmpty)
+    #expect(engine.codec == .evs)
+}
+
+// MARK: - STIR/SHAKEN caller ID
+
+/// When enabled, outbound INVITEs carry an Identity header for STIR/SHAKEN attestation,
+/// helping called parties verify the caller is not spoofed.
+@Test func stirShakIdentityAttachedWhenEnabled() throws {
+    var profile = try loadFixtureProfile()
+    profile.services.handover.stirShakEnabled = true
+    profile.services.handover.labIdentityHeader = "eyJ0eXAiOiJwYXNwb3J0IiwicGF5bG9hZCI6ImxhYiJ9"
+
+    var headers = SIPHeaders()
+    STIRSHAKPolicy.attachIdentity(to: &headers, profile: profile)
+    #expect(headers["Identity"]?.hasPrefix("eyJ") == true)
+}
+
+// MARK: - eSRVCC handover
+
+/// Enhanced Single Radio Voice Call Continuity moves an active call from LTE to 3G/2G.
+/// begin/complete hooks must fire so the session can send REFER and update media anchors.
 @Test func esrvccHandoverHooksFire() async throws {
     var profile = try loadFixtureProfile()
     profile.services.handover.esrvccEnabled = true

@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - File Overview
+// Builds and parses RTCP (RTP Control Protocol) packets. RTCP rides alongside RTP
+// (Real-time Transport Protocol) to report packet loss, jitter, and stream statistics.
+
+/// Statistics about received RTP packets, embedded in an RTCP receiver report.
 public struct RTCPReceiverReport: Sendable, Equatable {
     public var ssrc: UInt32
     public var fractionLost: UInt8
@@ -8,6 +13,7 @@ public struct RTCPReceiverReport: Sendable, Equatable {
     public var jitter: UInt32
 }
 
+/// An RTCP sender report summarizing how much media this endpoint has sent.
 public struct RTCPSenderReport: Sendable, Equatable {
     public var ssrc: UInt32
     public var ntpSeconds: UInt32
@@ -18,7 +24,9 @@ public struct RTCPSenderReport: Sendable, Equatable {
     public var reports: [RTCPReceiverReport]
 }
 
+/// Serializes and parses RTCP sender and receiver report packets.
 public enum RTCPPacket {
+    /// Builds an RTCP sender report (packet type 200) with optional receiver reports.
     public static func buildSenderReport(
         ssrc: UInt32,
         rtpTimestamp: UInt32,
@@ -35,6 +43,7 @@ public enum RTCPPacket {
         data.append(UInt8(length & 0xFF))
         appendUInt32(ssrc, to: &data)
 
+        // NTP (Network Time Protocol) timestamp anchors RTP time to wall clock.
         let now = Date().timeIntervalSince1970
         let ntpSeconds = UInt32(now) + 2_208_988_800
         let ntpFraction = UInt32((now.truncatingRemainder(dividingBy: 1)) * 4_294_967_296.0)
@@ -59,6 +68,7 @@ public enum RTCPPacket {
         return data
     }
 
+    /// Parses an RTCP receiver report (packet type 201) from raw bytes.
     public static func parseReceiverReport(_ data: Data) -> RTCPReceiverReport? {
         guard data.count >= 8 else { return nil }
         let packetType = data[1]
@@ -88,6 +98,7 @@ public enum RTCPPacket {
         )
     }
 
+    /// Parses an RTCP sender report (packet type 200) from raw bytes.
     public static func parseSenderReport(_ data: Data) -> RTCPSenderReport? {
         guard data.count >= 28 else { return nil }
         guard data[1] == 200 else { return nil }

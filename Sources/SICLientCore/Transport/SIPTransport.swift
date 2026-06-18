@@ -1,6 +1,13 @@
 import Foundation
 import Network
 
+// MARK: - File overview
+//
+// Real and factory-built SIP (Session Initiation Protocol) transports over UDP,
+// TCP, and TLS (Transport Layer Security). These send and receive raw SIP message
+// bytes to/from the P-CSCF (Proxy Call Session Control Function).
+
+/// Errors that can occur while connecting, sending, or receiving SIP messages.
 public enum SIPTransportError: Error, Sendable, CustomStringConvertible {
     case notConnected
     case sendFailed(String)
@@ -17,14 +24,21 @@ public enum SIPTransportError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Common interface for sending and receiving SIP messages over any underlying protocol.
 public protocol SIPTransport: Sendable {
+    /// True for TCP/TLS (messages arrive in order); false for UDP.
     var isReliable: Bool { get }
+    /// Opens the connection to the P-CSCF endpoint.
     func connect() async throws
+    /// Sends a complete SIP message as raw bytes.
     func send(_ data: Data) async throws
+    /// Waits up to `timeout` for an inbound SIP message; nil on timeout.
     func receive(timeout: Duration) async throws -> Data?
+    /// Tears down the connection and releases resources.
     func close() async
 }
 
+/// Connectionless SIP transport over UDP (User Datagram Protocol).
 public final class UDPTransport: SIPTransport, @unchecked Sendable {
     public let isReliable = false
     private let host: NWEndpoint.Host
@@ -32,11 +46,13 @@ public final class UDPTransport: SIPTransport, @unchecked Sendable {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "siclient.udp")
 
+    /// Targets the given P-CSCF host and port.
     public init(host: String, port: Int) {
         self.host = NWEndpoint.Host(host)
         self.port = NWEndpoint.Port(integerLiteral: UInt16(port))
     }
 
+    /// Starts the UDP connection and waits until the network stack reports ready.
     public func connect() async throws {
         let connection = NWConnection(host: host, port: port, using: .udp)
         self.connection = connection
@@ -57,6 +73,7 @@ public final class UDPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Sends one SIP datagram; UDP does not guarantee delivery.
     public func send(_ data: Data) async throws {
         guard let connection else { throw SIPTransportError.notConnected }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -70,8 +87,10 @@ public final class UDPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Waits for the next UDP datagram or times out.
     public func receive(timeout: Duration) async throws -> Data? {
         guard let connection else { throw SIPTransportError.notConnected }
+        // Race receive against a sleep task so callers get nil on timeout
         return try await withThrowingTaskGroup(of: Data?.self) { group in
             group.addTask {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
@@ -94,12 +113,14 @@ public final class UDPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Cancels the UDP connection.
     public func close() async {
         connection?.cancel()
         connection = nil
     }
 }
 
+/// Reliable SIP transport over TCP (Transmission Control Protocol).
 public final class TCPTransport: SIPTransport, @unchecked Sendable {
     public let isReliable = true
     private let host: NWEndpoint.Host
@@ -108,11 +129,13 @@ public final class TCPTransport: SIPTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "siclient.tcp")
     private var buffer = Data()
 
+    /// Targets the given P-CSCF host and port over TCP.
     public init(host: String, port: Int) {
         self.host = NWEndpoint.Host(host)
         self.port = NWEndpoint.Port(integerLiteral: UInt16(port))
     }
 
+    /// Opens a TCP connection to the P-CSCF.
     public func connect() async throws {
         let connection = NWConnection(host: host, port: port, using: .tcp)
         self.connection = connection
@@ -133,6 +156,7 @@ public final class TCPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Sends a complete SIP message over the TCP stream.
     public func send(_ data: Data) async throws {
         guard let connection else { throw SIPTransportError.notConnected }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -146,6 +170,7 @@ public final class TCPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Reads from the TCP stream until one full SIP message is assembled or timeout.
     public func receive(timeout: Duration) async throws -> Data? {
         guard connection != nil else { throw SIPTransportError.notConnected }
 
@@ -182,12 +207,14 @@ public final class TCPTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Closes TCP and clears the reassembly buffer.
     public func close() async {
         connection?.cancel()
         connection = nil
         buffer.removeAll()
     }
 
+    /// Pulls one SIP message from the buffer when headers + body are complete.
     private func extractMessage() throws -> Data? {
         guard let range = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
         let headerData = buffer[..<range.upperBound]
@@ -202,13 +229,14 @@ public final class TCPTransport: SIPTransport, @unchecked Sendable {
             .first ?? 0
 
         let total = range.upperBound + contentLength
-        guard buffer.count >= total else { return nil }
+        guard buffer.count >= total else { return nil } // Body not fully received yet
         let message = buffer[..<total]
         buffer.removeSubrange(..<total)
         return Data(message)
     }
 }
 
+/// Encrypted SIP transport over TLS on top of TCP.
 public final class TLSTransport: SIPTransport, @unchecked Sendable {
     public let isReliable = true
     private let host: NWEndpoint.Host
@@ -219,6 +247,7 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "siclient.tls")
     private var buffer = Data()
 
+    /// Targets the P-CSCF with TLS certificate validation from the operator profile.
     public init(host: String, port: Int, profile: OperatorProfile) {
         self.hostname = host
         self.host = NWEndpoint.Host(host)
@@ -226,6 +255,7 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
         self.profile = profile
     }
 
+    /// Opens a TLS connection with pinning or lab-trust rules from the profile.
     public func connect() async throws {
         let tlsOptions = NWProtocolTLS.Options()
         let tlsProfile = profile
@@ -258,6 +288,7 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Sends a SIP message over the encrypted TLS stream.
     public func send(_ data: Data) async throws {
         guard let connection else { throw SIPTransportError.notConnected }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -271,6 +302,7 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Reads from TLS until one complete SIP message is available or timeout.
     public func receive(timeout: Duration) async throws -> Data? {
         guard connection != nil else { throw SIPTransportError.notConnected }
 
@@ -307,12 +339,14 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
         }
     }
 
+    /// Closes TLS and clears the reassembly buffer.
     public func close() async {
         connection?.cancel()
         connection = nil
         buffer.removeAll()
     }
 
+    /// Pulls one SIP message from the buffer when headers + body are complete.
     private func extractMessage() throws -> Data? {
         guard let range = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
         let headerData = buffer[..<range.upperBound]
@@ -334,7 +368,9 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
     }
 }
 
+/// Builds the right SIPTransport for a P-CSCF endpoint, with optional UDP fallback.
 public enum TransportFactory {
+    /// Creates UDP/TCP/TLS transport, wrapping UDP in FallbackSIPTransport when configured.
     public static func make(endpoint: PCSCFEndpoint, profile: OperatorProfile) -> any SIPTransport {
         let primary = makeSingle(endpoint: endpoint, transport: endpoint.transport, profile: profile)
 
@@ -353,6 +389,7 @@ public enum TransportFactory {
         return primary
     }
 
+    /// Instantiates a single transport without fallback wrapping.
     private static func makeSingle(endpoint: PCSCFEndpoint, transport: TransportProtocol, profile: OperatorProfile) -> any SIPTransport {
         switch transport {
         case .udp:

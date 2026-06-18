@@ -1,5 +1,11 @@
 import Foundation
 
+// MARK: - File Overview
+// Runs a live audio media session: captures microphone audio, encodes it, sends RTP
+// (Real-time Transport Protocol) packets to the remote party, receives their packets,
+// decodes them, and plays audio. Also handles DTMF (Dual-Tone Multi-Frequency) tones.
+
+/// Coordinates RTP transport, codec, and optional microphone/speaker I/O for one call leg.
 public actor MediaSession {
     private let transport: any RTPTransport
     private let codecEngine: any AudioCodecEngine
@@ -10,12 +16,14 @@ public actor MediaSession {
     private var rtcpTask: Task<Void, Never>?
     private var capturePCM: Data?
 
+    /// Creates a media session with the given transport and codec; audio I/O is optional.
     public init(transport: any RTPTransport, codecEngine: any AudioCodecEngine, audioIO: AudioIODevice? = nil) {
         self.transport = transport
         self.codecEngine = codecEngine
         self.audioIO = audioIO
     }
 
+    /// Binds local port, starts RTP send/receive, and optionally begins microphone capture.
     public func start(
         localPort: Int,
         remote: MediaEndpoint,
@@ -52,6 +60,7 @@ public actor MediaSession {
             }
         }
 
+        // RTCP (RTP Control Protocol) reports help monitor stream quality.
         rtcpTask = Task { [weak self] in
             guard let self else { return }
             await self.rtcpLoop()
@@ -62,6 +71,7 @@ public actor MediaSession {
         capturePCM = pcm
     }
 
+    /// Sends a DTMF tone digit as RTP telephone-event packets.
     public func sendDTMF(_ digit: Character) async throws {
         guard let rtpSession, direction == .sendrecv || direction == .sendonly else { return }
         guard let eventDigit = DTMFEncoder.digitCharacter(digit) else { return }
@@ -74,6 +84,7 @@ public actor MediaSession {
         _ = pt
     }
 
+    /// Changes whether this session sends, receives, both, or neither.
     public func setDirection(_ direction: MediaDirection) async {
         self.direction = direction
         if direction == .sendonly || direction == .inactive {
@@ -87,10 +98,12 @@ public actor MediaSession {
         }
     }
 
+    /// Returns current RTP stream statistics (packets sent/received, loss, jitter).
     public func stats() async -> RTPStreamStats {
         await rtpSession?.currentStats() ?? RTPStreamStats()
     }
 
+    /// Stops capture, transmission, and RTP sessions cleanly.
     public func stop() async {
         pumpTask?.cancel()
         rtcpTask?.cancel()
@@ -105,6 +118,7 @@ public actor MediaSession {
         await transport.close()
     }
 
+    /// Repeatedly encodes captured (or placeholder) PCM and sends RTP audio frames.
     private func transmitLoop() async {
         var frameIndex: UInt8 = 0
         while !Task.isCancelled {
@@ -112,6 +126,7 @@ public actor MediaSession {
             if let capturePCM, capturePCM.count >= codecEngine.samplesPerFrame * 2 {
                 pcm = capturePCM
             } else {
+                // No microphone data yet — send a deterministic placeholder frame.
                 pcm = Data(repeating: frameIndex, count: codecEngine.samplesPerFrame * 2)
             }
             let payload = codecEngine.encodePCM(pcm)
@@ -125,10 +140,12 @@ public actor MediaSession {
                 break
             }
             frameIndex &+= 1
+            // ~20 ms frame interval for wideband codecs.
             try? await Task.sleep(for: .milliseconds(20))
         }
     }
 
+    /// Sends periodic RTCP sender reports to the remote party.
     private func rtcpLoop() async {
         while !Task.isCancelled {
             try? await rtpSession?.sendRTCPReport()
@@ -136,6 +153,7 @@ public actor MediaSession {
         }
     }
 
+    /// Decodes an incoming RTP packet and plays the resulting PCM audio.
     private func handleReceived(_ packet: RTPPacket) {
         let pcm = codecEngine.decodeRTPPayload(packet.payload)
         audioIO?.playPCM(pcm)

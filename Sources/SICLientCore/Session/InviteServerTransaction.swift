@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// When we receive an incoming INVITE (mobile-terminated call), the server-side
+// transaction sends provisional and final responses and waits for follow-up requests
+// like PRACK, UPDATE, and ACK within the same dialog.
+
+/// Errors while waiting for or handling in-dialog SIP requests on the server side.
 public enum ServerTransactionError: Error, Sendable, CustomStringConvertible {
     case timeout(String)
     case unexpectedRequest(String)
@@ -12,6 +19,7 @@ public enum ServerTransactionError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Sends responses and waits for in-dialog requests during an incoming INVITE flow.
 public actor InviteServerTransaction {
     private let transport: any SIPTransport
     private let logger: Logger?
@@ -23,12 +31,14 @@ public actor InviteServerTransaction {
         self.t2 = t2
     }
 
+    /// Sends a SIP response (e.g. 100 Trying, 183 Session Progress, 200 OK) to the network.
     public func sendResponse(_ response: SIPResponse) async throws {
         let payload = SIPSerializer.serialize(.response(response))
         logSIP(direction: "out", payload: payload)
         try await transport.send(payload)
     }
 
+    /// Blocks until a specific in-dialog request (PRACK, UPDATE, ACK) arrives or times out.
     public func waitForRequest(
         method: String,
         callID: String,

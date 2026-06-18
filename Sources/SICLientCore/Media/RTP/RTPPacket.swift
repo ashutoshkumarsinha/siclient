@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - File Overview
+// Represents one RTP (Real-time Transport Protocol) media packet and provides
+// serialize/parse helpers. RTP carries encoded audio/video between call parties.
+
+/// One RTP packet with header fields and a media payload.
 public struct RTPPacket: Sendable, Equatable {
     public var version: UInt8
     public var padding: Bool
@@ -10,6 +15,7 @@ public struct RTPPacket: Sendable, Equatable {
     public var ssrc: UInt32
     public var payload: Data
 
+    /// Creates an RTP packet; version defaults to 2 per RFC 3550.
     public init(
         version: UInt8 = 2,
         padding: Bool = false,
@@ -30,6 +36,7 @@ public struct RTPPacket: Sendable, Equatable {
         self.payload = payload
     }
 
+    /// Converts this packet to on-the-wire RTP bytes (12-byte header + payload).
     public func serialize() -> Data {
         var data = Data(capacity: 12 + payload.count)
         let byte0 = (version & 0x03) << 6 | (padding ? 0x20 : 0) | 0
@@ -50,6 +57,7 @@ public struct RTPPacket: Sendable, Equatable {
         return data
     }
 
+    /// Parses raw bytes into an RTP packet, or nil if the data is invalid.
     public static func parse(_ data: Data) -> RTPPacket? {
         guard data.count >= 12 else { return nil }
         let byte0 = data[0]
@@ -67,6 +75,7 @@ public struct RTPPacket: Sendable, Equatable {
         let timestamp = UInt32(data[4]) << 24 | UInt32(data[5]) << 16 | UInt32(data[6]) << 8 | UInt32(data[7])
         let ssrc = UInt32(data[8]) << 24 | UInt32(data[9]) << 16 | UInt32(data[10]) << 8 | UInt32(data[11])
         var payload = data.subdata(in: headerLength..<data.count)
+        // Strip padding bytes indicated by the last payload octet.
         if padding, let padCount = payload.last, Int(padCount) <= payload.count {
             payload.removeLast(Int(padCount))
         }

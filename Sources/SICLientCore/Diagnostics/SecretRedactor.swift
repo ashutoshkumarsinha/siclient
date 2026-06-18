@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - File Overview
+// Removes sensitive authentication values (AKA keys, nonces, digest responses) from
+// log messages and structured fields before they are printed or stored.
+
+/// Regex-based redaction of IMS authentication secrets in strings and log fields.
 public enum SecretRedactor {
   private static let patterns: [(name: String, regex: NSRegularExpression)] = {
         let rawPatterns = [
@@ -20,6 +25,7 @@ public enum SecretRedactor {
         }
     }()
 
+    /// Replaces any matching sensitive patterns in the input with `[REDACTED]`.
     public static func redact(_ input: String) -> String {
         var result = input
         for (_, regex) in patterns {
@@ -37,6 +43,7 @@ public enum SecretRedactor {
         "res", "ik", "ck", "autn", "auts", "rand", "nonce", "response",
     ]
 
+    /// Redacts a structured log field by key name or by scanning its value.
     public static func redactField(key: String, value: String) -> String {
         if sensitiveFieldKeys.contains(key.lowercased()) {
             return "[REDACTED]"
@@ -44,6 +51,7 @@ public enum SecretRedactor {
         return redact(value)
     }
 
+    /// Returns true if the input contains any known sensitive authentication material.
     public static func containsSensitiveMaterial(_ input: String) -> Bool {
         for (_, regex) in patterns {
             let range = NSRange(input.startIndex..., in: input)

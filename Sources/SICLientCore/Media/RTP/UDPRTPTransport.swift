@@ -1,6 +1,10 @@
 import Foundation
 import Network
 
+// MARK: - File Overview
+// Sends and receives RTP (Real-time Transport Protocol) packets over UDP using
+// Apple's Network framework. Used for real network VoLTE media when not in loopback mode.
+
 private actor UDPInbox {
     private var items: [(data: Data, host: String, port: Int)] = []
 
@@ -18,14 +22,17 @@ private actor UDPInbox {
     }
 }
 
+/// RTP transport that binds a UDP port and sends packets to remote hosts.
 public final class UDPRTPTransport: RTPTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "siclient.rtp.udp")
     private var listener: NWListener?
     private var boundPort: Int = 0
     private let inbox = UDPInbox()
 
+    /// Creates a UDP RTP transport ready to bind.
     public init() {}
 
+    /// Binds a local UDP port for receiving RTP packets.
     public func bind(localPort: Int) async throws {
         let params = NWParameters.udp
         params.allowLocalEndpointReuse = true
@@ -65,6 +72,7 @@ public final class UDPRTPTransport: RTPTransport, @unchecked Sendable {
         }
     }
 
+    /// Sends one RTP packet to the given host and UDP port.
     public func send(_ data: Data, to host: String, port: Int) async throws {
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw RTPTransportError.sendFailed("invalid port \(port)")
@@ -93,6 +101,7 @@ public final class UDPRTPTransport: RTPTransport, @unchecked Sendable {
         }
     }
 
+    /// Waits up to `timeout` for the next received UDP packet.
     public func receive(timeout: Duration) async throws -> (data: Data, host: String, port: Int)? {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
@@ -104,12 +113,14 @@ public final class UDPRTPTransport: RTPTransport, @unchecked Sendable {
         return nil
     }
 
+    /// Closes the UDP listener and clears the receive inbox.
     public func close() async {
         listener?.cancel()
         listener = nil
         await inbox.clear()
     }
 
+    /// Recursively reads incoming UDP messages and queues them for `receive`.
     private func receive(on connection: NWConnection) {
         connection.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }

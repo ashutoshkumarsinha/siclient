@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// Application is the programmatic entry point used by the CLI and tests. It loads
+// the operator profile, discovers the P-CSCF (Proxy Call Session Control Function),
+// creates CallService, and runs the requested flow (register, call, SMS, etc.).
+
+/// Command-line and runtime options for a single Application run.
 public struct ApplicationOptions: Sendable {
     public let profilePath: String
     public let dryRun: Bool
@@ -15,6 +22,7 @@ public struct ApplicationOptions: Sendable {
     public let fetchCallForwarding: Bool
     public let setCallForwardingTarget: String?
 
+    /// Creates runtime options from CLI flags or programmatic configuration.
     public init(
         profilePath: String,
         dryRun: Bool,
@@ -46,6 +54,7 @@ public struct ApplicationOptions: Sendable {
     }
 }
 
+/// Errors during application bootstrap (profile load, adapter setup).
 public enum ApplicationError: Error, Sendable, CustomStringConvertible {
     case bootstrapFailed(String)
 
@@ -57,15 +66,18 @@ public enum ApplicationError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Orchestrates profile loading, IMS bootstrap, and the selected signaling flow.
 public struct Application: Sendable {
     private let options: ApplicationOptions
     private let output: @Sendable (String) -> Void
 
+    /// Creates an application with options and an optional log output sink.
     public init(options: ApplicationOptions, output: @escaping @Sendable (String) -> Void = { print($0) }) {
         self.options = options
         self.output = output
     }
 
+    /// Loads profile, connects to P-CSCF, and executes the flow implied by options.
     public func run() async throws {
         let logger = Logger(
             correlationID: CorrelationID(prefix: options.deregister ? "dereg" : "bootstrap"),
@@ -78,6 +90,7 @@ public struct Application: Sendable {
 
         let impi = try platform.sim.getIMPI()
         let impus = try platform.sim.getIMPUList()
+        // Discover P-CSCF — first SIP hop in the IMS network for this operator.
         let pcscf = try platform.network.discoverPCSCF(profile: profile)
         let access = try platform.accessInfo.currentAccessInfo()
 

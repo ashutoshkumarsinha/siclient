@@ -1,7 +1,17 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// An INVITE client transaction handles the special SIP call-setup flow: send INVITE,
+// collect provisional (1xx) responses, optionally send PRACK for reliable provisionals,
+// then wait for the final 2xx/3xx/4xx/5xx/6xx response. UDP retransmission applies
+// until a final answer arrives.
+
+/// Collected provisional and final responses from an INVITE transaction.
 public struct InviteTransactionResult: Sendable, Equatable {
+    /// 1xx responses received before the final answer (e.g. 180 Ringing, 183 Session Progress).
     public var provisionals: [SIPResponse]
+    /// Final response to the INVITE (typically 200 OK or an error code).
     public var final: SIPResponse
 
     public init(provisionals: [SIPResponse], final: SIPResponse) {
@@ -10,6 +20,7 @@ public struct InviteTransactionResult: Sendable, Equatable {
     }
 }
 
+/// Manages the client-side INVITE transaction including PRACK for 100rel.
 public actor InviteClientTransaction {
     private let transport: any SIPTransport
     private let logger: Logger?
@@ -23,6 +34,7 @@ public actor InviteClientTransaction {
         self.t2 = t2
     }
 
+    /// Sends INVITE, handles provisional responses and PRACK, returns when a final response arrives.
     public func sendInvite(
         _ invite: SIPRequest,
         prackBuilder: @Sendable @escaping (SIPResponse) -> SIPRequest?
@@ -42,6 +54,7 @@ public actor InviteClientTransaction {
 
                 if (100 ... 199).contains(response.statusCode) {
                     provisionals.append(response)
+                    // 183 with Require: 100rel needs a PRACK to acknowledge the provisional.
                     if response.statusCode == 183, requires100rel(response), let prack = prackBuilder(response) {
                         logSIP(direction: "out", payload: SIPSerializer.serialize(.request(prack)))
                         try await transport.send(SIPSerializer.serialize(.request(prack)))
@@ -56,6 +69,7 @@ public actor InviteClientTransaction {
                     break
                 }
 
+                // Non-INVITE 2xx on shared transport — requeue for other handlers.
                 if (200 ... 299).contains(response.statusCode) {
                     if let loopback = transport as? LoopbackSIPTransport {
                         await loopback.requeue(SIPSerializer.serialize(.response(response)))
@@ -70,6 +84,7 @@ public actor InviteClientTransaction {
             }
 
             if finalResponse == nil {
+                // No final response yet — retransmit INVITE (UDP only).
                 try await transport.send(SIPSerializer.serialize(.request(invite)))
                 attempt += 1
             }
@@ -79,11 +94,13 @@ public actor InviteClientTransaction {
         return InviteTransactionResult(provisionals: provisionals, final: finalResponse)
     }
 
+    /// Sends ACK to confirm receipt of a 2xx INVITE response (required by SIP).
     public func sendAck(_ ack: SIPRequest) async throws {
         logSIP(direction: "out", payload: SIPSerializer.serialize(.request(ack)))
         try await transport.send(SIPSerializer.serialize(.request(ack)))
     }
 
+    /// Sends an in-dialog request (e.g. BYE) using a standard client transaction.
     public func sendRequest(_ request: SIPRequest) async throws -> SIPResponse {
         let transaction = ClientTransaction(transport: transport, logger: logger, t1: t1, t2: t2)
         return try await transaction.send(request)
@@ -107,6 +124,7 @@ public actor InviteClientTransaction {
             guard let data = try await transport.receive(timeout: remaining) else { return nil }
             guard let message = try? SIPParser.parse(data) else { continue }
             guard case .response(let response) = message else { continue }
+            // Filter by Call-ID so we only accept responses for this dialog.
             if let callID, response.headers["Call-ID"] != callID {
                 if let loopback = transport as? LoopbackSIPTransport {
                     await loopback.requeue(data)

@@ -1,12 +1,20 @@
 import SwiftUI
 
+// MARK: - File Overview
+// Main SwiftUI layout for the SICLient desktop app. Provides forms for profile loading,
+// IMS registration, voice calls, SMS, supplementary services, and emergency calling.
+// The detail pane shows connection status and a scrolling log view.
+
+/// Root view with a sidebar form and a log/detail pane.
 public struct ContentView: View {
     @Bindable private var model: ClientViewModel
 
+    /// Creates the main view bound to the shared view model.
     public init(model: ClientViewModel) {
         self.model = model
     }
 
+    /// Builds the split navigation layout with controls and log output.
     public var body: some View {
         NavigationSplitView {
             Form {
@@ -139,6 +147,7 @@ public struct ContentView: View {
         }
     }
 
+    /// Human-readable status string derived from the view model connection state.
     private var statusText: String {
         switch model.connectionState {
         case .idle:

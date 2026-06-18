@@ -2,6 +2,12 @@ import Foundation
 import Observation
 import SICLientCore
 
+// MARK: - File Overview
+// SwiftUI view model that drives the SICLient GUI: loads profiles, registers with IMS,
+// places calls, sends SMS, and manages supplementary services. Bridges UI actions to
+// the underlying CallService.
+
+/// High-level connection state shown in the GUI status area.
 public enum ClientConnectionState: Equatable, Sendable {
     case idle
     case bootstrapping
@@ -10,6 +16,7 @@ public enum ClientConnectionState: Equatable, Sendable {
     case error(String)
 }
 
+/// Main view model for the SICLient desktop GUI; owns profile, call service, and log state.
 @MainActor
 @Observable
 public final class ClientViewModel {
@@ -28,6 +35,7 @@ public final class ClientViewModel {
     private var loadedProfile: OperatorProfile?
     private var callService: CallService?
 
+    /// Creates a view model with an empty profile path and default field values.
     public init(profilePath: String = "") {
         self.profilePath = profilePath
         self.callDestination = ""
@@ -50,51 +58,63 @@ public final class ClientViewModel {
         self.profileSummary = Self.summarize(profile)
     }
 
+    /// True when a profile path is entered and no operation is in progress.
     public var canLoadProfile: Bool {
         !isBusy && !profilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// True when a profile is loaded and the client is not already registered or busy.
     public var canRegister: Bool {
         loadedProfile != nil && !isBusy && connectionState != .registered && connectionState != .inCall
             && connectionState != .bootstrapping
     }
 
+    /// True when registered or in a call and deregistration is allowed.
     public var canDeregister: Bool {
         loadedProfile != nil && !isBusy && (connectionState == .registered || connectionState == .inCall)
     }
 
+    /// True when registered and a call destination is entered.
     public var canPlaceCall: Bool {
         connectionState == .registered && !isBusy && !callDestination.isEmpty
     }
 
+    /// True when currently in an active call.
     public var canHangUp: Bool {
         connectionState == .inCall && !isBusy
     }
 
+    /// True when in a call and hold/resume is available.
     public var canHoldOrResume: Bool {
         connectionState == .inCall && !isBusy
     }
 
+    /// True when in a call and exactly one DTMF digit is entered.
     public var canSendDTMF: Bool {
         connectionState == .inCall && !isBusy && dtmfDigit.count == 1
     }
 
+    /// True when registered with SMS destination and message text filled in.
     public var canSendSMS: Bool {
         connectionState == .registered && !isBusy && !smsDestination.isEmpty && !smsText.isEmpty
     }
 
+    /// True when an emergency call can be placed (profile loaded, not already in call).
     public var canEmergencyCall: Bool {
         loadedProfile != nil && !isBusy && connectionState != .inCall && connectionState != .bootstrapping
     }
 
+    /// True when registered and call forwarding can be fetched via XCAP.
     public var canFetchForwarding: Bool {
         connectionState == .registered && !isBusy
     }
 
+    /// True when registered and a CFU target URI is entered.
     public var canSetForwarding: Bool {
         connectionState == .registered && !isBusy && !callForwardingTarget.isEmpty
     }
 
+    /// Loads an operator profile from `profilePath` on disk.
     public func loadProfile() async {
         guard canLoadProfile else { return }
         isBusy = true
@@ -112,6 +132,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Registers with IMS (IP Multimedia Subsystem), creating CallService on first use.
     public func register() async {
         guard canRegister, let profile = loadedProfile else { return }
         isBusy = true
@@ -143,6 +164,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Hangs up any active call and deregisters from IMS.
     public func deregister() async {
         guard canDeregister, let callService else { return }
         isBusy = true
@@ -161,6 +183,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Places a voice call to `callDestination`.
     public func placeCall() async {
         guard canPlaceCall, let callService else { return }
         isBusy = true
@@ -176,6 +199,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Ends the current call and returns to registered state.
     public func hangUp() async {
         guard canHangUp, let callService else { return }
         isBusy = true
@@ -191,6 +215,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Puts the active call on hold.
     public func hold() async {
         guard canHoldOrResume, let callService else { return }
         isBusy = true
@@ -204,6 +229,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Resumes a held call.
     public func resume() async {
         guard canHoldOrResume, let callService else { return }
         isBusy = true
@@ -217,6 +243,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Sends one DTMF (Dual-Tone Multi-Frequency) digit during an active call.
     public func sendDTMF() async {
         guard canSendDTMF, let callService, let digit = dtmfDigit.first else { return }
         isBusy = true
@@ -230,6 +257,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Sends an SMS (Short Message Service) to `smsDestination`.
     public func sendSMS() async {
         guard canSendSMS, let callService else { return }
         isBusy = true
@@ -243,6 +271,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Registers if needed and places an emergency call to 112.
     public func placeEmergencyCall() async {
         guard canEmergencyCall, let callService else { return }
         isBusy = true
@@ -262,6 +291,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Fetches call forwarding unconditional (CFU) settings via XCAP.
     public func fetchCallForwarding() async {
         guard canFetchForwarding, let callService else { return }
         isBusy = true
@@ -275,6 +305,7 @@ public final class ClientViewModel {
         }
     }
 
+    /// Enables call forwarding unconditional to `callForwardingTarget`.
     public func setCallForwarding() async {
         guard canSetForwarding, let callService else { return }
         isBusy = true

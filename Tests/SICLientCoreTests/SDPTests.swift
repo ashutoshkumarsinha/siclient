@@ -1,7 +1,17 @@
+// SDPTests.swift
+//
+// Verifies Session Description Protocol (SDP) offer/answer generation and parsing for
+// VoLTE media negotiation. SDP carries codec choices, RTP ports, and QoS preconditions
+// exchanged in SIP INVITE/183/200 OK — getting this wrong means no audio on the call.
+
 import Foundation
 import Testing
 @testable import SICLientCore
 
+// MARK: - Offer generation
+
+/// VoLTE INVITEs include SDP with AMR-WB and mandatory QoS preconditions (curr/des/conf
+/// attributes). Carriers require these before they will open the media bearer.
 @Test func sdpOfferIncludesPreconditions() throws {
     let profile = try loadFixtureProfile()
     let offer = SDPSessionBuilder.voLTEOffer(
@@ -18,6 +28,10 @@ import Testing
     #expect(text.contains("a=conf:qos remote sendrecv"))
 }
 
+// MARK: - Round-trip parsing
+
+/// Parsing an SDP answer must preserve codec list and precondition state so the
+/// session FSM knows when both sides have met QoS requirements for media start.
 @Test func sdpRoundTripPreservesPreconditionState() throws {
     let profile = try loadFixtureProfile()
     let original = SDPSessionBuilder.voLTEAnswer(
@@ -32,6 +46,10 @@ import Testing
     #expect(SDPParser.offeredAudioCodecs(parsed).contains(.amrWB))
 }
 
+// MARK: - Precondition state machine
+
+/// QoS preconditions progress from "none" to "sendrecv" as UPDATE/re-INVITE exchanges
+/// complete. The parser must detect when local vs remote sides are satisfied.
 @Test func preconditionStateParsing() {
     let attrs = [
         "a=curr:qos local sendrecv",

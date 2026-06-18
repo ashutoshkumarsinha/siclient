@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+// SDP (Session Description Protocol) describes what media a VoLTE call will use:
+// codecs, IP addresses, ports, and whether audio is send-only, receive-only, or both.
+// This file defines data types for SDP, builds offer/answer bodies for calls, and parses
+// SDP text received from the network into structured objects.
+
+/// One media stream block inside an SDP document (e.g. an audio line with port and codecs).
 public struct SDPMediaDescription: Sendable, Equatable {
     public var mediaType: String
     public var port: Int
@@ -7,6 +14,7 @@ public struct SDPMediaDescription: Sendable, Equatable {
     public var formats: [String]
     public var attributes: [String]
 
+    /// Creates a media description, defaulting transport to RTP/AVP (RTP over UDP with profile).
     public init(
         mediaType: String,
         port: Int,
@@ -21,9 +29,11 @@ public struct SDPMediaDescription: Sendable, Equatable {
         self.attributes = attributes
     }
 
+    /// All attribute lines attached to this media block.
     public var allAttributes: [String] { attributes }
 }
 
+/// A complete SDP session: origin info, connection address, and one or more media blocks.
 public struct SDPSessionDescription: Sendable, Equatable {
     public var originUsername: String
     public var sessionID: String
@@ -35,6 +45,7 @@ public struct SDPSessionDescription: Sendable, Equatable {
     public var media: [SDPMediaDescription]
     public var sessionAttributes: [String]
 
+    /// Creates an SDP session description with sensible defaults for lab use.
     public init(
         originUsername: String = "-",
         sessionID: String = "0",
@@ -57,11 +68,13 @@ public struct SDPSessionDescription: Sendable, Equatable {
         self.sessionAttributes = sessionAttributes
     }
 
+    /// Reads QoS precondition status from SDP attribute lines.
     public var preconditionState: PreconditionState {
         let attrs = media.flatMap(\.attributes) + sessionAttributes
         return PreconditionState.parse(from: attrs)
     }
 
+    /// Converts this session into the plain-text SDP body sent in SIP messages.
     public func serialize() -> String {
         var lines = [
             "v=0",
@@ -79,7 +92,9 @@ public struct SDPSessionDescription: Sendable, Equatable {
     }
 }
 
+/// Factory methods that build common VoLTE SDP offer and answer bodies.
 public enum SDPSessionBuilder {
+    /// Builds SDP for a single negotiated audio codec after the call is established.
     public static func voLTEMediaSDP(
         profile: OperatorProfile,
         localIP: String,
@@ -107,6 +122,7 @@ public enum SDPSessionBuilder {
         return SDPSessionDescription(originAddress: localIP, connectionAddress: localIP, media: [audio])
     }
 
+    /// Builds an SDP offer listing all codecs the client is willing to use.
     public static func voLTEOffer(
         profile: OperatorProfile,
         localIP: String,
@@ -138,6 +154,7 @@ public enum SDPSessionBuilder {
 
         var mediaBlocks = [audio]
         if includeVideo, let video = VideoCodec.fromProfile(profile.codecs.video).first {
+            // Video typically uses the next even port after audio.
             mediaBlocks.append(
                 SDPMediaDescription(
                     mediaType: "video",
@@ -159,6 +176,7 @@ public enum SDPSessionBuilder {
         )
     }
 
+    /// Builds an SDP answer picking one codec from what the remote side offered.
     public static func voLTEAnswer(
         profile: OperatorProfile,
         localIP: String,
@@ -193,15 +211,19 @@ public enum SDPSessionBuilder {
         )
     }
 
+    /// Picks the first preferred codec that also appears in the remote offer.
     private static func selectCodec(preferred: [AudioCodec], offered: [AudioCodec]) -> AudioCodec {
         for codec in preferred where offered.contains(codec) {
             return codec
         }
+        // Fall back to any offered codec except DTMF tones, or AMR-WB as last resort.
         return offered.first(where: { $0 != .telephoneEvent }) ?? .amrWB
     }
 }
 
+/// Parses raw SDP text into structured session descriptions.
 public enum SDPParser {
+    /// Reads an SDP string line-by-line into an `SDPSessionDescription`.
     public static func parse(_ text: String) -> SDPSessionDescription {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -241,6 +263,7 @@ public enum SDPParser {
             case "t":
                 timing = "t=\(value)"
             case "m":
+                // A new m= line starts a new media block; save the previous one first.
                 if let currentMedia { media.append(currentMedia) }
                 let parts = value.split(separator: " ").map(String.init)
                 guard parts.count >= 4 else { continue }
@@ -252,6 +275,7 @@ public enum SDPParser {
                     attributes: []
                 )
             case "a":
+                // Attribute lines belong to the current media block, or to the session if none is open.
                 if var mediaBlock = currentMedia {
                     mediaBlock.attributes.append("a=\(value)")
                     currentMedia = mediaBlock
@@ -277,6 +301,7 @@ public enum SDPParser {
         )
     }
 
+    /// Extracts the list of audio codecs advertised in an SDP session.
     public static func offeredAudioCodecs(_ session: SDPSessionDescription) -> [AudioCodec] {
         guard let audio = session.media.first(where: { $0.mediaType == "audio" }) else { return [] }
         var codecs: [AudioCodec] = []

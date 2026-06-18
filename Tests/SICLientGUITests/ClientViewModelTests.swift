@@ -1,7 +1,17 @@
+// ClientViewModelTests.swift
+//
+// Verifies the SwiftUI ClientViewModel that drives the GUI phone app: profile loading,
+// registration, calls, hold/resume, DTMF, SMS, call forwarding, and emergency dialing.
+// These tests use mock IMS transports so UI logic can be tested without a live network.
+
 import Foundation
 import Testing
 import SICLientGUI
 
+// MARK: - Initial state & profile loading
+
+/// Before a profile is loaded the ViewModel must disable all IMS actions (register,
+/// call, SMS, emergency) — matching the greyed-out buttons a user sees at launch.
 @MainActor
 @Test func viewModelInitialStateGatesActions() {
     let model = ClientViewModel()
@@ -13,6 +23,8 @@ import SICLientGUI
     #expect(!model.canEmergencyCall)
 }
 
+/// Loading a lab profile from disk must populate the summary and enable registration,
+/// just as when a user picks an operator JSON file in the GUI.
 @MainActor
 @Test func viewModelLoadProfileFromDisk() async throws {
     let model = ClientViewModel(profilePath: guiFixtureURL(named: "lab-volte-01.json").path)
@@ -23,6 +35,10 @@ import SICLientGUI
     #expect(model.connectionState == .idle)
 }
 
+// MARK: - Registration lifecycle
+
+/// Register then deregister must transition idle → registered → idle, enabling and
+/// disabling the corresponding toolbar buttons in the phone app.
 @MainActor
 @Test func viewModelRegisterAndDeregister() async throws {
     let profile = try loadGUIFixtureProfile()
@@ -37,6 +53,10 @@ import SICLientGUI
     #expect(model.connectionState == .idle)
 }
 
+// MARK: - Voice call control
+
+/// Full MO call flow: register, place call, hold, resume, hang up — mirroring the
+/// button sequence a user follows for a normal VoLTE voice call in the GUI.
 @MainActor
 @Test func viewModelPlaceCallHoldResumeHangUp() async throws {
     let profile = try loadGUIFixtureProfile()
@@ -62,6 +82,8 @@ import SICLientGUI
     #expect(model.logLines.contains { $0.contains("Call ended") })
 }
 
+/// DTMF can only be sent during an active call; the ViewModel must log the digit
+/// sent for IVR/voicemail interaction testing from the GUI keypad.
 @MainActor
 @Test func viewModelSendDTMFDuringCall() async throws {
     let profile = try loadGUIFixtureProfile()
@@ -77,6 +99,10 @@ import SICLientGUI
     #expect(model.logLines.contains { $0.contains("DTMF sent: 5") })
 }
 
+// MARK: - SMS
+
+/// SMS send requires registration and an enabled SMS service in the profile —
+/// the GUI SMS panel must only activate when both conditions are met.
 @MainActor
 @Test func viewModelSendSMSWhenRegistered() async throws {
     var profile = try loadGUIFixtureProfile()
@@ -92,6 +118,10 @@ import SICLientGUI
     #expect(model.logLines.contains { $0.contains("SMS sent") })
 }
 
+// MARK: - Supplementary services
+
+/// Call forwarding (CFU) set/fetch via XCAP must work from the GUI supplementary
+/// services panel after IMS registration.
 @MainActor
 @Test func viewModelCallForwardingControls() async throws {
     var profile = try loadGUIFixtureProfile()
@@ -110,6 +140,10 @@ import SICLientGUI
     #expect(model.logLines.contains { $0.contains("CFU active=") })
 }
 
+// MARK: - Emergency calling
+
+/// Emergency call button must connect immediately (even if registered) and return
+/// to registered state after hang-up — matching E911 behavior in the phone app.
 @MainActor
 @Test func viewModelEmergencyCallFlow() async throws {
     var profile = try loadGUIFixtureProfile()
@@ -125,6 +159,10 @@ import SICLientGUI
     #expect(model.connectionState == .registered)
 }
 
+// MARK: - Button gating
+
+/// After registration, Register is disabled and Deregister is enabled; Hang Up stays
+/// disabled until a call is active — preventing invalid UI state combinations.
 @MainActor
 @Test func viewModelButtonGatingAfterRegistration() async throws {
     let profile = try loadGUIFixtureProfile()
@@ -136,6 +174,10 @@ import SICLientGUI
     #expect(!model.canHangUp)
 }
 
+// MARK: - UI accessibility
+
+/// Every GUI control needs a unique accessibility identifier for UI automation and
+/// VoiceOver — duplicates would break XCUITest scripts and screen reader navigation.
 @Test func accessibilityIdentifiersAreUniqueAndNonEmpty() {
     let ids = [
         AccessibilityID.profilePathField,

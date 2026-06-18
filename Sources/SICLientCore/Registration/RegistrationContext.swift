@@ -1,12 +1,26 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// Holds parsed data from a successful IMS registration (200 OK): the Service-Route
+// to reach the S-CSCF, public identities (IMPU), expiry, and security association.
+// Also builds REGISTER/OPTIONS requests and parses registration responses.
+
+/// Mutable registration state accumulated across REGISTER exchanges.
 public struct RegistrationContext: Sendable, Equatable {
+    /// Service-Route header — next-hop URI for all subsequent SIP requests.
     public var serviceRoute: String?
+    /// IMPU (IP Multimedia Public Identity) list from P-Associated-URI.
     public var associatedURIs: [String]
+    /// Primary public identity used for outbound calls.
     public var defaultIMPU: String?
+    /// Registration lifetime in seconds from Expires header.
     public var expiresSec: Int
+    /// Call-ID reused for all REGISTER refreshes in this registration cycle.
     public var callID: String
+    /// Monotonically increasing CSeq for each REGISTER sent.
     public var cseq: Int
+    /// Security association negotiated via Security-Server/Security-Verify.
     public var securityAssociation: SecurityAssociation?
 
     public init(
@@ -28,14 +42,18 @@ public struct RegistrationContext: Sendable, Equatable {
     }
 }
 
+/// Registration lifecycle states managed by RegistrationFSM.
 public enum RegistrationState: Sendable, Equatable {
     case unregistered
     case registering
+    /// Waiting for IMS-AKA response after 401 challenge.
     case authenticating
     case registered
+    /// Refreshing an existing registration before expiry.
     case reregistering
 }
 
+/// Errors during IMS registration or deregistration.
 public enum RegistrationError: Error, Sendable, CustomStringConvertible {
     case invalidChallenge(String)
     case akaFailed(String)
@@ -56,7 +74,9 @@ public enum RegistrationError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Builds SIP REGISTER and OPTIONS requests for IMS registration.
 public enum RegisterRequestBuilder {
+    /// Creates a SIP REGISTER to the home domain registrar (via P-CSCF).
     public static func makeRegister(
         profile: OperatorProfile,
         impi: String,
@@ -96,12 +116,14 @@ public enum RegisterRequestBuilder {
         if let credentials {
             headers.set("Authorization", value: credentials.headerValue())
         } else {
+            // Empty Digest placeholder triggers 401 with IMS-AKA challenge from network.
             headers.set("Authorization", value: #"Digest username="\#(impi)", realm="", nonce="", uri="\#(registrarURI)", response=""#)
         }
 
         return SIPRequest(method: SIPMethod.register.rawValue, requestURI: registrarURI, headers: headers)
     }
 
+    /// Creates a SIP OPTIONS keep-alive request for reliable (TCP/TLS) transports.
     public static func makeOPTIONS(
         profile: OperatorProfile,
         impu: String,
@@ -132,7 +154,9 @@ public enum RegisterRequestBuilder {
     }
 }
 
+/// Parses successful and challenge responses from the IMS registrar.
 public enum RegistrationResponseParser {
+    /// Extracts Service-Route, IMPU list, expiry, and Security-Server from 200 OK.
     public static func parse200OK(_ response: SIPResponse, profile: OperatorProfile) -> RegistrationContext {
         var context = RegistrationContext()
         context.serviceRoute = response.headers["Service-Route"]
@@ -154,6 +178,7 @@ public enum RegistrationResponseParser {
         return context
     }
 
+    /// Parses WWW-Authenticate header from 401 into an IMS-AKA Digest challenge.
     public static func parse401(_ response: SIPResponse) throws -> DigestChallenge {
         guard let header = response.headers["WWW-Authenticate"], let challenge = DigestAuthParser.parseChallenge(header) else {
             throw RegistrationError.invalidChallenge("missing WWW-Authenticate")

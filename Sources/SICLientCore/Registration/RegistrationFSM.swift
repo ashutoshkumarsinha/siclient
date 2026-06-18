@@ -1,5 +1,12 @@
 import Foundation
 
+// MARK: - File Overview
+//
+// RegistrationFSM manages the full IMS registration lifecycle: initial REGISTER,
+// 401 challenge, IMS-AKA authentication via SIM, periodic refresh, keep-alive,
+// network-change re-registration, and deregistration (Expires: 0).
+
+/// State machine for IMS SIP REGISTER, refresh, and deregistration.
 public actor RegistrationFSM {
     private let profile: OperatorProfile
     private let platform: PlatformContext
@@ -17,6 +24,7 @@ public actor RegistrationFSM {
     private var lastNetworkPath: String?
     private var lastLocalIP: String?
 
+    /// Creates a registration FSM with operator profile, platform adapters, and transport.
     public init(profile: OperatorProfile, platform: PlatformContext, transport: any SIPTransport, logger: Logger) {
         self.profile = profile
         self.platform = platform
@@ -24,13 +32,17 @@ public actor RegistrationFSM {
         self.logger = logger
     }
 
+    /// Current registration state.
     public func currentState() -> RegistrationState { state }
+    /// Parsed registration context (routes, IMPU, security, expiry).
     public func registrationContext() -> RegistrationContext { context }
 
+    /// Callback invoked when registration is lost (refresh failure, 403, etc.).
     public func setRegistrationLostHandler(_ handler: (@Sendable () async -> Void)?) {
         registrationLostHandler = handler
     }
 
+    /// Registers with IMS, retrying transient failures per operator policy.
     public func register(expires: Int = 3600) async throws {
         var attempt = 0
         let maxAttempts = profile.resilience.maxRegistrationRetries
@@ -64,6 +76,7 @@ public actor RegistrationFSM {
         }
     }
 
+    /// Forces re-registration when radio access type or local IP changes.
     public func handleNetworkPathChange() async throws {
         let access = try platform.accessInfo.currentAccessInfo()
         let path = NetworkResiliencePolicy.pathLabel(for: access)
@@ -116,6 +129,7 @@ public actor RegistrationFSM {
 
         context.cseq += 1
 
+        // Reuse cached credentials for refresh; skip full IMS-AKA round-trip.
         if let lastCredentials, state == .reregistering || expires == 0 {
             let request = buildRegister(
                 impi: impi, impu: impu, pani: pani, localIP: localIP,
@@ -126,6 +140,7 @@ public actor RegistrationFSM {
             return
         }
 
+        // First REGISTER without credentials — expect 401 with IMS-AKA challenge.
         let initial = buildRegister(
             impi: impi, impu: impu, pani: pani, localIP: localIP,
             expires: expires, credentials: nil
@@ -153,6 +168,7 @@ public actor RegistrationFSM {
 
         state = .authenticating
         let challenge = try RegistrationResponseParser.parse401(firstResponse)
+        // Run IMS-AKA (Authentication and Key Agreement) on the SIM with RAND/AUTN.
         let (rand, autn) = try IMSChallengeDecoder.randAndAUTN(from: challenge)
         let akaResult = try platform.sim.akaChallenge(rand: rand, autn: autn)
 
@@ -263,6 +279,7 @@ public actor RegistrationFSM {
         logRegistered()
     }
 
+    /// Unregisters by sending REGISTER with Expires: 0.
     public func deregister() async throws {
         guard state == .registered || state == .reregistering else {
             throw RegistrationError.notRegistered
@@ -277,6 +294,7 @@ public actor RegistrationFSM {
 
   private func scheduleRefresh() {
         refreshTask?.cancel()
+        // Refresh well before Expires to avoid registration gap (typically 80% of lifetime).
         let refreshDelay = max(1, Int(Double(context.expiresSec) * profile.timers.registrationRefreshRatio))
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(refreshDelay))

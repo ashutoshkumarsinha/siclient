@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - File Overview
+// Stable accessibility identifiers for GUI controls. Used by UI tests and automation
+// to find buttons, text fields, and labels without relying on visible text.
+
+/// Accessibility identifier strings for SICLient GUI elements.
 public enum AccessibilityID {
     public static let profilePathField = "gui.profilePath"
     public static let loadProfileButton = "gui.loadProfile"

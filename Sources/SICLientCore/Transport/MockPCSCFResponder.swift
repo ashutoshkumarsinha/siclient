@@ -1,14 +1,27 @@
 import Foundation
 
+// MARK: - File overview
+//
+// Tracks mutable state for the mock P-CSCF (Proxy Call Session Control Function)
+// responder during SIP REGISTER tests — registration status, attempt count, and
+// whether an AKA (Authentication and Key Agreement) sync resync is pending.
+
+/// Mutable state shared by mock P-CSCF REGISTER response logic.
 public final class MockPCSCFState: @unchecked Sendable {
+    /// True after a successful REGISTER with valid credentials.
     public var registered = false
+    /// How many REGISTER attempts the mock has seen.
     public var registerAttemptCount = 0
+    /// True when the mock is waiting for a resync after an AUTS sync failure.
     public var syncResyncPending = false
 
+    /// Creates fresh mock P-CSCF state.
     public init() {}
 }
 
+/// Generates SIP responses for REGISTER requests against a mock P-CSCF.
 public enum MockPCSCFResponder {
+    /// Returns a 401 challenge, 200 OK, or nil if the request is not REGISTER.
     public static func response(
         for requestData: Data,
         profile: OperatorProfile,
@@ -22,11 +35,13 @@ public enum MockPCSCFResponder {
         state.registerAttemptCount += 1
 
         let expires = Int(request.headers["Expires"] ?? "3600") ?? 3600
+        // Expires: 0 means deregister
         if expires == 0 {
             state.registered = false
             return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: 0)))
         }
 
+        // Already registered with valid Authorization — accept refresh
         if state.registered,
            let auth = request.headers["Authorization"],
            let creds = DigestAuthParser.parseCredentials(auth),
@@ -36,20 +51,24 @@ public enum MockPCSCFResponder {
 
         if let auth = request.headers["Authorization"],
            let creds = DigestAuthParser.parseCredentials(auth) {
+            // AUTS resync path after sync failure
             if let auts = creds.auts, validateAUTS(auts, profile: profile) {
                 state.syncResyncPending = false
                 state.registered = true
                 return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: expires)))
             }
+            // Normal AKA digest success
             if !creds.response.isEmpty, validateCredentials(creds, profile: profile) {
                 state.registered = true
                 return SIPSerializer.serialize(.response(make200OK(for: request, profile: profile, expires: expires)))
             }
         }
 
+        // No valid credentials yet — challenge with 401 + AKA parameters
         return SIPSerializer.serialize(.response(make401(for: request, profile: profile, state: state)))
     }
 
+    /// Checks AUTS from the client against the lab vector's expected value.
     private static func validateAUTS(_ auts: String, profile: OperatorProfile) -> Bool {
         guard
             let labSim = profile.labSim,
@@ -60,6 +79,7 @@ public enum MockPCSCFResponder {
         return provided == expected
     }
 
+    /// Checks digest response against the lab vector's expected RES value.
     private static func validateCredentials(_ creds: DigestCredentials, profile: OperatorProfile) -> Bool {
         guard
             let labSim = profile.labSim,
@@ -71,12 +91,14 @@ public enum MockPCSCFResponder {
         return provided == expected
     }
 
+    /// Builds a 401 Unauthorized with WWW-Authenticate AKA challenge headers.
     private static func make401(for request: SIPRequest, profile: OperatorProfile, state: MockPCSCFState) -> SIPResponse {
         guard let labSim = profile.labSim else {
             return SIPResponse(statusCode: 403, reasonPhrase: "Forbidden")
         }
 
         let vector: AKAVector
+        // Pick sync-failure, resync, or normal challenge vector based on attempt count
         if state.syncResyncPending, let resync = labSim.akaVectors.first(where: { $0.auts == nil }) {
             vector = resync
         } else if let syncVector = labSim.akaVectors.first(where: { $0.auts != nil }), state.registerAttemptCount == 1 {
@@ -102,6 +124,7 @@ public enum MockPCSCFResponder {
         return SIPResponse(statusCode: 401, reasonPhrase: "Unauthorized - Challenging the UE", headers: headers)
     }
 
+    /// Builds a 200 OK with Service-Route, P-Associated-URI, and Security-Server headers.
     private static func make200OK(for request: SIPRequest, profile: OperatorProfile, expires: Int) -> SIPResponse {
         let impu = profile.labSim?.impus.first ?? "sip:user@\(profile.homeDomain)"
         var headers = SIPHeaders()

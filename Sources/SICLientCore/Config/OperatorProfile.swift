@@ -1,22 +1,39 @@
 import Foundation
 
+// MARK: - File overview
+//
+// The central configuration model for an IMS (IP Multimedia Subsystem) client.
+// An operator profile (JSON file) tells the client how to reach the P-CSCF
+// (Proxy Call Session Control Function), which SIP (Session Initiation Protocol)
+// transports and security to use, which codecs to offer, and optional lab SIM
+// credentials for testing.
+
+/// SIP transport protocols in priority order (UDP, TCP, or TLS).
 public enum TransportProtocol: String, Codable, Sendable, CaseIterable {
     case udp
     case tcp
     case tls
 }
 
+/// How the client learns the P-CSCF address.
 public enum PCSCFDiscoveryMode: String, Codable, Sendable {
+    /// Fixed host/port in the profile.
     case `static`
+    /// Addresses from modem PCO (Protocol Configuration Options).
     case pco
+    /// Addresses from DHCP (Dynamic Host Configuration Protocol) option 120.
     case dhcp
 }
 
+/// Post-registration security mechanism between UE and P-CSCF.
 public enum SecurityMechanism: String, Codable, Sendable {
+  /// 3GPP IPsec (IP Security) on dedicated ports.
     case ipsec3gpp = "ipsec-3gpp"
+    /// TLS (Transport Layer Security) on a dedicated port.
     case tls
 }
 
+/// P-CSCF discovery and addressing settings from the operator profile.
 public struct PCSCFConfig: Codable, Sendable, Equatable {
     public var mode: PCSCFDiscoveryMode
     public var address: String?
@@ -37,6 +54,7 @@ public struct PCSCFConfig: Codable, Sendable, Equatable {
         case dhcpAddresses = "dhcp_addresses"
     }
 
+    /// Creates P-CSCF config for the chosen discovery mode.
     public init(
         mode: PCSCFDiscoveryMode,
         address: String? = nil,
@@ -54,14 +72,17 @@ public struct PCSCFConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Ordered list of preferred SIP transport protocols.
 public struct TransportConfig: Codable, Sendable, Equatable {
     public var preference: [TransportProtocol]
 
+    /// Creates transport preferences (first entry is tried first).
     public init(preference: [TransportProtocol]) {
         self.preference = preference
     }
 }
 
+/// Security mechanism and TLS settings for SIP signaling.
 public struct SecurityConfig: Codable, Sendable, Equatable {
     public var mechanism: SecurityMechanism
     public var tls: TLSConfig
@@ -71,17 +92,20 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
         case tls
     }
 
+    /// Creates security config with optional TLS sub-settings.
     public init(mechanism: SecurityMechanism, tls: TLSConfig = TLSConfig()) {
         self.mechanism = mechanism
         self.tls = tls
     }
 
+    /// Decodes from JSON, defaulting TLS config when absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         mechanism = try container.decode(SecurityMechanism.self, forKey: .mechanism)
         tls = try container.decodeIfPresent(TLSConfig.self, forKey: .tls) ?? TLSConfig()
     }
 
+    /// Encodes mechanism and TLS settings to JSON.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(mechanism, forKey: .mechanism)
@@ -89,6 +113,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// TLS certificate pinning and lab-trust options.
 public struct TLSConfig: Codable, Sendable, Equatable {
     /// SHA-256 fingerprints of trusted server certificates (hex, lowercase, no colons).
     public var pinnedCertificateSHA256: [String]
@@ -100,24 +125,29 @@ public struct TLSConfig: Codable, Sendable, Equatable {
         case allowInsecureLab = "allow_insecure_lab"
     }
 
+    /// Creates TLS config; lab mode allows insecure certs by default.
     public init(pinnedCertificateSHA256: [String] = [], allowInsecureLab: Bool = true) {
         self.pinnedCertificateSHA256 = pinnedCertificateSHA256
         self.allowInsecureLab = allowInsecureLab
     }
 }
 
+/// Preferred audio and video codec names for SDP (Session Description Protocol).
 public struct CodecConfig: Codable, Sendable, Equatable {
     public var audio: [String]
     public var video: [String]
 
+    /// Creates codec lists with typical VoLTE defaults (AMR-WB, H.264).
     public init(audio: [String] = ["AMR-WB", "AMR"], video: [String] = ["H264", "H265"]) {
         self.audio = audio
         self.video = video
     }
 }
 
+/// Resource reservation precondition settings for VoLTE setup.
 public struct PreconditionsConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
+    /// Milliseconds to wait for preconditions before failing the call.
     public var failTimeoutMs: Int
 
     enum CodingKeys: String, CodingKey {
@@ -125,14 +155,18 @@ public struct PreconditionsConfig: Codable, Sendable, Equatable {
         case failTimeoutMs = "fail_timeout_ms"
     }
 
+    /// Creates precondition config (enabled by default, 8 s timeout).
     public init(enabled: Bool = true, failTimeoutMs: Int = 8000) {
         self.enabled = enabled
         self.failTimeoutMs = failTimeoutMs
     }
 }
 
+/// SIP registration refresh and keepalive timing.
 public struct TimersConfig: Codable, Sendable, Equatable {
+    /// Fraction of Expires at which to re-REGISTER (e.g. 0.8 = 80%).
     public var registrationRefreshRatio: Double
+    /// Seconds between SIP keepalive messages on idle connections.
     public var keepaliveSec: Int
 
     enum CodingKeys: String, CodingKey {
@@ -140,20 +174,24 @@ public struct TimersConfig: Codable, Sendable, Equatable {
         case keepaliveSec = "keepalive_sec"
     }
 
+    /// Creates timer defaults (refresh at 80% of Expires, 45 s keepalive).
     public init(registrationRefreshRatio: Double = 0.8, keepaliveSec: Int = 45) {
         self.registrationRefreshRatio = registrationRefreshRatio
         self.keepaliveSec = keepaliveSec
     }
 }
 
+/// One pre-computed AKA (Authentication and Key Agreement) test vector for lab SIM.
 public struct AKAVector: Codable, Sendable, Equatable {
     public var rand: String
     public var autn: String
     public var res: String
     public var ik: String
     public var ck: String
+    /// Present only for sync-failure test scenarios (AUTS value).
     public var auts: String?
 
+    /// Creates a lab AKA vector with optional AUTS for resync tests.
     public init(rand: String, autn: String, res: String, ik: String, ck: String, auts: String? = nil) {
         self.rand = rand
         self.autn = autn
@@ -164,6 +202,7 @@ public struct AKAVector: Codable, Sendable, Equatable {
     }
 }
 
+/// Embedded lab SIM credentials and AKA vectors (replaces real UICC in tests).
 public struct LabSimConfig: Codable, Sendable, Equatable {
     public var impi: String
     public var impus: [String]
@@ -175,6 +214,7 @@ public struct LabSimConfig: Codable, Sendable, Equatable {
         case akaVectors = "aka_vectors"
     }
 
+    /// Creates lab SIM config with IMPI, IMPU list, and optional AKA vectors.
     public init(impi: String, impus: [String], akaVectors: [AKAVector] = []) {
         self.impi = impi
         self.impus = impus
@@ -182,8 +222,10 @@ public struct LabSimConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Complete operator profile: everything the IMS client needs to register and call.
 public struct OperatorProfile: Codable, Sendable, Equatable {
     public var profileID: String
+    /// SIP home domain / IMS realm (e.g. ims.mnc001.mcc234.3gppnetwork.org).
     public var homeDomain: String
     public var pcscf: PCSCFConfig
     public var transport: TransportConfig
@@ -211,6 +253,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         case labSim = "lab_sim"
     }
 
+    /// Creates a fully specified operator profile.
     public init(
         profileID: String,
         homeDomain: String,
@@ -239,6 +282,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         self.labSim = labSim
     }
 
+    /// Decodes from JSON, filling in defaults for optional sections.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         profileID = try container.decode(String.self, forKey: .profileID)
@@ -255,6 +299,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         labSim = try container.decodeIfPresent(LabSimConfig.self, forKey: .labSim)
     }
 
+    /// Encodes all profile fields to JSON.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(profileID, forKey: .profileID)
