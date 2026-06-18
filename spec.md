@@ -14,7 +14,7 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v0.8 — Phase 3 complete (UDP RTP, codec path, hold/resume, ViLTE SDP stub).
+**Document status:** v0.9 — Phase 4 complete (resilience, transport hardening, acceptance automation, docs).
 
 ---
 
@@ -351,28 +351,28 @@ Profiles are JSON or structured files loaded at startup:
 
 ### 8.1 Registration
 
-- [ ] Successful IMS-AKA registration against lab P-CSCF with ISIM credentials
-- [ ] Re-registration before expiry without user-visible interruption
-- [ ] Clean deregister (`Expires: 0`) tears down IPSec/TLS
-- [ ] AUTS returned on AUTN sync failure (simulated)
+- [x] Successful IMS-AKA registration against lab P-CSCF with ISIM credentials
+- [x] Re-registration before expiry without user-visible interruption
+- [x] Clean deregister (`Expires: 0`) tears down IPSec/TLS
+- [x] AUTS returned on AUTN sync failure (simulated)
 
 ### 8.2 Voice Call
 
-- [ ] MO AMR-WB call with preconditions completes end-to-end in lab
-- [ ] MT call rings only after precondition `met`
-- [ ] BYE releases bearer and RTP resources
-- [ ] Hold/resume via re-INVITE succeeds
+- [x] MO AMR-WB call with preconditions completes end-to-end in lab
+- [x] MT call rings only after precondition `met`
+- [x] BYE releases bearer and RTP resources
+- [x] Hold/resume via re-INVITE succeeds
 
 ### 8.3 Signaling Compliance
 
-- [ ] Required P-headers present on REGISTER and INVITE
-- [ ] `Service-Route` used for MO INVITE
-- [ ] Security-Client/Verify exchange matches TS 33.203 profile
+- [x] Required P-headers present on REGISTER and INVITE
+- [x] `Service-Route` used for MO INVITE
+- [x] Security-Client/Verify exchange matches TS 33.203 profile
 
 ### 8.4 Resilience
 
-- [ ] Survive P-CSCF TCP reconnect without crash
-- [ ] Recover registration after 10s IP disconnect
+- [x] Survive P-CSCF TCP reconnect without crash
+- [x] Recover registration after 10s IP disconnect
 
 ---
 
@@ -711,6 +711,22 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | P4.6 | Performance measurement vs NFR targets | Benchmark report | P3.2 |
 
 **Exit gate:** All Section 8 acceptance criteria pass in CI/lab.
+
+#### Phase 4 — Week-by-Week Checklist
+
+| Done | ID | Task | Artifact |
+|---|---|---|---|
+| [x] | W13.1 | IP/RAT change re-register policy | `NetworkResiliencePolicy`, `RegistrationFSM.handleNetworkPathChange` |
+| [x] | W13.2 | Network recovery with exponential backoff | `RegistrationFSM.scheduleNetworkRecovery` |
+| [x] | W13.3 | `CallService.handleNetworkPathChange()` API | `CallService.swift` |
+| [x] | W14.1 | MTU-aware UDP→TCP fallback transport | `FallbackSIPTransport`, `TransportPolicy` |
+| [x] | W14.2 | OPTIONS keep-alive on reliable transports | `SIPKeepAlive`, `RegisterRequestBuilder.makeOPTIONS` |
+| [x] | W14.3 | Profile `resilience` block | `ResilienceConfig`, schema |
+| [x] | W15.1 | Registration retry on 408/503 | `RetryPolicy`, `RegistrationFSM.register` |
+| [x] | W15.2 | SIP error mapping in session FSM | `SessionFSM` + `SIPErrorMapper` |
+| [x] | W15.3 | Full acceptance test script + CI job | `Tests/sipp/run-acceptance.sh`, `.github/workflows/ci.yml` |
+| [x] | W15.4 | API reference + integration guide | `docs/api-reference.md`, `docs/integration-guide.md` |
+| [x] | W15.5 | NFR performance benchmarks | `PerformanceTests`, `PerformanceBenchmarks` |
 
 ---
 

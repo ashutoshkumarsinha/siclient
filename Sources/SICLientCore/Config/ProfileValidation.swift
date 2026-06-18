@@ -11,6 +11,9 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
     case invalidKeepalive(Int)
     case invalidPreconditionTimeout(Int)
     case invalidRTPPort(Int)
+    case invalidMTUBytes(Int)
+    case invalidRegistrationRetries(Int)
+    case invalidNetworkRecoveryTimeout(Int)
     case labSimMissingIMPUs
     case labSimEmptyIMPI
     case invalidHexField(String, field: String)
@@ -37,6 +40,12 @@ public enum ProfileValidationError: Error, Equatable, Sendable, CustomStringConv
             return "fail_timeout_ms must be between 1000 and 60000, got \(ms)"
         case .invalidRTPPort(let port):
             return "media.local_rtp_port out of range: \(port)"
+        case .invalidMTUBytes(let mtu):
+            return "resilience.mtu_bytes out of range: \(mtu)"
+        case .invalidRegistrationRetries(let retries):
+            return "resilience.max_registration_retries out of range: \(retries)"
+        case .invalidNetworkRecoveryTimeout(let seconds):
+            return "resilience.network_recovery_timeout_sec out of range: \(seconds)"
         case .labSimMissingIMPUs:
             return "lab_sim.impus must contain at least one IMPU"
         case .labSimEmptyIMPI:
@@ -97,6 +106,21 @@ public enum ProfileValidator {
         let rtpPort = profile.media.localRTPPort
         guard (1024 ... 65535).contains(rtpPort) else {
             throw ProfileValidationError.invalidRTPPort(rtpPort)
+        }
+
+        let mtu = profile.resilience.mtuBytes
+        guard (576 ... 9000).contains(mtu) else {
+            throw ProfileValidationError.invalidMTUBytes(mtu)
+        }
+
+        let retries = profile.resilience.maxRegistrationRetries
+        guard (1 ... 10).contains(retries) else {
+            throw ProfileValidationError.invalidRegistrationRetries(retries)
+        }
+
+        let recovery = profile.resilience.networkRecoveryTimeoutSec
+        guard (5 ... 120).contains(recovery) else {
+            throw ProfileValidationError.invalidNetworkRecoveryTimeout(recovery)
         }
 
         if let labSim = profile.labSim {

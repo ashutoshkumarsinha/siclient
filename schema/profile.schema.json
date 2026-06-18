@@ -119,6 +119,27 @@
         "use_ffmpeg_codec": { "type": "boolean" }
       }
     },
+    "resilience": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mtu_bytes": {
+          "type": "integer",
+          "minimum": 576,
+          "maximum": 9000
+        },
+        "max_registration_retries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "network_recovery_timeout_sec": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 120
+        }
+      }
+    },
     "lab_sim": {
       "type": "object",
       "description": "Development-only SIM credentials and AKA test vectors",

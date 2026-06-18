@@ -101,6 +101,35 @@ public enum RegisterRequestBuilder {
 
         return SIPRequest(method: SIPMethod.register.rawValue, requestURI: registrarURI, headers: headers)
     }
+
+    public static func makeOPTIONS(
+        profile: OperatorProfile,
+        impu: String,
+        localIP: String,
+        localPort: Int,
+        context: RegistrationContext,
+        securityAssociation: SecurityAssociation? = nil
+    ) -> SIPRequest {
+        let registrarURI = "sip:\(profile.homeDomain)"
+        let branch = "z9hG4bK-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let tag = UUID().uuidString.prefix(8)
+
+        var headers = SIPHeaders()
+        headers.set("Via", value: "SIP/2.0/UDP \(localIP):\(localPort);branch=\(branch);rport")
+        headers.set("Max-Forwards", value: "70")
+        headers.set("From", value: "<\(impu)>;tag=\(tag)")
+        headers.set("To", value: "<\(impu)>")
+        headers.set("Call-ID", value: context.callID)
+        headers.set("CSeq", value: "\(context.cseq + 1) OPTIONS")
+        headers.set("Contact", value: IMSHeaderBuilder.contact(impu: impu, expires: context.expiresSec))
+        headers.set("Allow", value: IMSHeaderBuilder.allowRegistration())
+
+        if let securityAssociation, securityAssociation.isEstablished {
+            headers.set("Security-Verify", value: securityAssociation.verifyValue)
+        }
+
+        return SIPRequest(method: SIPMethod.options.rawValue, requestURI: registrarURI, headers: headers)
+    }
 }
 
 public enum RegistrationResponseParser {

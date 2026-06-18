@@ -31,6 +31,11 @@
     "enable_video": false,
     "use_ffmpeg_codec": false
   },
+  "resilience": {
+    "mtu_bytes": 1300,
+    "max_registration_retries": 3,
+    "network_recovery_timeout_sec": 30
+  },
   "lab_sim": {
     "impi": "001010123456789@ims.mnc001.mcc001.3gppnetwork.org",
     "impus": [

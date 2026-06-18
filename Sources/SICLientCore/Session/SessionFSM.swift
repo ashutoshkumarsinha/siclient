@@ -164,8 +164,16 @@ public actor SessionFSM {
         }
 
         guard (200 ... 299).contains(result.final.statusCode) else {
+            let action = SIPErrorMapper.action(for: result.final.statusCode, method: SIPMethod.invite.rawValue)
             await cleanupSession(&session)
             activeSession = nil
+            logger.warn(
+                "MO INVITE failed",
+                fields: [
+                    "status": String(result.final.statusCode),
+                    "action": String(describing: action),
+                ]
+            )
             throw SessionError.unexpectedResponse(result.final.statusCode)
         }
 
@@ -261,6 +269,11 @@ public actor SessionFSM {
         let transaction = ClientTransaction(transport: transport, logger: logger)
         let response = try await transaction.send(reinvite)
         guard (200 ... 299).contains(response.statusCode) else {
+            let action = SIPErrorMapper.action(for: response.statusCode, method: SIPMethod.invite.rawValue)
+            logger.warn(
+                "Media re-negotiation failed",
+                fields: ["status": String(response.statusCode), "action": String(describing: action)]
+            )
             throw SessionError.unexpectedResponse(response.statusCode)
         }
 

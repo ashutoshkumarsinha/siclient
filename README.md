@@ -19,7 +19,7 @@ swift build
 swift test
 ```
 
-43 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, UDP RTP, and loopback mock IMS.
+51 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, resilience, performance NFRs, and loopback mock IMS.
 
 ## Run
 
@@ -112,6 +112,34 @@ After call establishment, `SessionFSM` optionally starts a `MediaSession` (injec
 4. `CallService.mediaStats()` — packets sent/received, loss, jitter
 
 Lab codec uses AMR-WB RTP framing without licensed compression (interop testing).
+
+## Resilience (Phase 4)
+
+- `CallService.handleNetworkPathChange()` — re-register after IP/RAT change
+- `FallbackSIPTransport` — UDP with automatic TCP fallback when payload exceeds `resilience.mtu_bytes`
+- Registration retry on 408/503 with exponential backoff
+- OPTIONS keep-alive on TCP/TLS; CRLF on UDP
+- Network recovery after failed re-register (profile `network_recovery_timeout_sec`)
+
+Profile `resilience` block:
+
+```json
+{
+  "resilience": {
+    "mtu_bytes": 1300,
+    "max_registration_retries": 3,
+    "network_recovery_timeout_sec": 30
+  }
+}
+```
+
+Full acceptance suite:
+
+```bash
+./Tests/sipp/run-acceptance.sh
+```
+
+See `docs/integration-guide.md` and `docs/api-reference.md`.
 
 ## Phase 3 Exit Gate
 

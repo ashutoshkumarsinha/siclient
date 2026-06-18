@@ -90,4 +90,8 @@ public actor CallService {
     public func activeSession() async -> SessionContext? {
         await sessionFSM.activeSessionContext()
     }
+
+    public func handleNetworkPathChange() async throws {
+        try await registrationFSM.handleNetworkPathChange()
+    }
 }

@@ -131,6 +131,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
     public var preconditions: PreconditionsConfig
     public var timers: TimersConfig
     public var media: MediaConfig
+    public var resilience: ResilienceConfig
     public var labSim: LabSimConfig?
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +144,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         case preconditions
         case timers
         case media
+        case resilience
         case labSim = "lab_sim"
     }
 
@@ -156,6 +158,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         preconditions: PreconditionsConfig = PreconditionsConfig(),
         timers: TimersConfig = TimersConfig(),
         media: MediaConfig = MediaConfig(),
+        resilience: ResilienceConfig = ResilienceConfig(),
         labSim: LabSimConfig? = nil
     ) {
         self.profileID = profileID
@@ -167,6 +170,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         self.preconditions = preconditions
         self.timers = timers
         self.media = media
+        self.resilience = resilience
         self.labSim = labSim
     }
 
@@ -181,6 +185,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         preconditions = try container.decodeIfPresent(PreconditionsConfig.self, forKey: .preconditions) ?? PreconditionsConfig()
         timers = try container.decodeIfPresent(TimersConfig.self, forKey: .timers) ?? TimersConfig()
         media = try container.decodeIfPresent(MediaConfig.self, forKey: .media) ?? MediaConfig()
+        resilience = try container.decodeIfPresent(ResilienceConfig.self, forKey: .resilience) ?? ResilienceConfig()
         labSim = try container.decodeIfPresent(LabSimConfig.self, forKey: .labSim)
     }
 
@@ -195,6 +200,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         try container.encode(preconditions, forKey: .preconditions)
         try container.encode(timers, forKey: .timers)
         try container.encode(media, forKey: .media)
+        try container.encode(resilience, forKey: .resilience)
         try container.encodeIfPresent(labSim, forKey: .labSim)
     }
 }

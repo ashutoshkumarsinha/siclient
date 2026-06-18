@@ -61,3 +61,13 @@ jobs:
           ./Tests/sipp/run-mo-call.sh 127.0.0.1:15060
           kill "$UAS_PID" 2>/dev/null || true
           ./Tests/sipp/run-mt-call.sh 127.0.0.1 15061
+
+      - name: Acceptance script smoke test
+        run: |
+          chmod +x Tests/sipp/run-acceptance.sh
+          if command -v sipp >/dev/null 2>&1; then
+            ./Tests/sipp/run-acceptance.sh
+          else
+            swift test
+            swift run siclient --profile profiles/lab-volte-01.json --dry-run
+          fi

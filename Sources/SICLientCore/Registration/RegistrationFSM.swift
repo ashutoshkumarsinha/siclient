@@ -11,6 +11,9 @@ public actor RegistrationFSM {
     private var lastCredentials: DigestCredentials?
     private var refreshTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
+    private var lastNetworkPath: String?
+    private var lastLocalIP: String?
 
     public init(profile: OperatorProfile, platform: PlatformContext, transport: any SIPTransport, logger: Logger) {
         self.profile = profile
@@ -23,6 +26,69 @@ public actor RegistrationFSM {
     public func registrationContext() -> RegistrationContext { context }
 
     public func register(expires: Int = 3600) async throws {
+        var attempt = 0
+        let maxAttempts = profile.resilience.maxRegistrationRetries
+
+        while true {
+            do {
+                try await registerOnce(expires: expires)
+                return
+            } catch {
+                attempt += 1
+                let statusCode = Self.statusCode(from: error)
+                guard RetryPolicy.shouldRetryRegistration(
+                    statusCode: statusCode,
+                    error: error,
+                    attempt: attempt,
+                    maxAttempts: maxAttempts
+                ) else {
+                    throw error
+                }
+
+                let delay = RetryPolicy.delayBeforeRetry(attempt: attempt - 1)
+                logger.warn(
+                    "Registration retry scheduled",
+                    fields: [
+                        "attempt": String(attempt),
+                        "status": statusCode.map(String.init) ?? "transport",
+                    ]
+                )
+                try await Task.sleep(for: delay)
+            }
+        }
+    }
+
+    public func handleNetworkPathChange() async throws {
+        let access = try platform.accessInfo.currentAccessInfo()
+        let path = NetworkResiliencePolicy.pathLabel(for: access)
+        let ip = try platform.network.localIPAddress()
+
+        defer {
+            lastNetworkPath = path
+            lastLocalIP = ip
+        }
+
+        guard state == .registered || state == .reregistering else { return }
+
+        let pathChanged = lastNetworkPath.map {
+            NetworkResiliencePolicy.shouldReregisterAfterIPChange(previousPath: $0, currentPath: path)
+        } ?? false
+        let ipChanged = lastLocalIP.map {
+            NetworkResiliencePolicy.shouldReregisterAfterIPChange(previousIP: $0, currentIP: ip)
+        } ?? false
+
+        guard pathChanged || ipChanged else { return }
+
+        logger.info(
+            "Network change detected; forcing re-register",
+            fields: ["path": path, "local_ip": ip]
+        )
+        refreshTask?.cancel()
+        state = .reregistering
+        try await register(expires: context.expiresSec)
+    }
+
+    private func registerOnce(expires: Int = 3600) async throws {
         switch state {
         case .unregistered:
             state = .registering
@@ -168,6 +234,8 @@ public actor RegistrationFSM {
 
         context = RegistrationResponseParser.parse200OK(response, profile: profile)
         state = .registered
+        lastNetworkPath = try? NetworkResiliencePolicy.pathLabel(for: platform.accessInfo.currentAccessInfo())
+        lastLocalIP = try? platform.network.localIPAddress()
         scheduleRefresh()
         startKeepAlive()
         logRegistered()
@@ -180,6 +248,7 @@ public actor RegistrationFSM {
 
         refreshTask?.cancel()
         keepAliveTask?.cancel()
+        recoveryTask?.cancel()
         state = .reregistering
         try await register(expires: 0)
     }
@@ -202,6 +271,29 @@ public actor RegistrationFSM {
     private func handleReregisterFailure(_ error: Error) {
         logger.warn("Re-registration failed", fields: ["error": String(describing: error)])
         state = .unregistered
+        scheduleNetworkRecovery()
+    }
+
+    private func scheduleNetworkRecovery() {
+        recoveryTask?.cancel()
+        let timeout = profile.resilience.networkRecoveryTimeoutSec
+        recoveryTask = Task { [weak self] in
+            let deadline = NetworkResiliencePolicy.networkRecoveryDeadline(timeoutSec: timeout)
+            var attempt = 0
+            while ContinuousClock.now < deadline, !Task.isCancelled {
+                guard let self else { return }
+                let delay = RetryPolicy.delayBeforeRetry(attempt: attempt)
+                try? await Task.sleep(for: delay)
+                attempt += 1
+                do {
+                    try await self.register(expires: self.context.expiresSec)
+                    self.logger.info("Network recovery re-registration succeeded")
+                    return
+                } catch {
+                    self.logger.warn("Network recovery attempt failed", fields: ["error": String(describing: error)])
+                }
+            }
+        }
     }
 
     private func startKeepAlive() {
@@ -218,13 +310,32 @@ public actor RegistrationFSM {
 
     private func sendKeepAlive() async {
         guard state == .registered else { return }
-        let payload = Data("\r\n\r\n".utf8)
         do {
-            try await transport.send(payload)
-            logger.trace("Sent transport keep-alive")
+            let impus = try platform.sim.getIMPUList()
+            guard let impu = impus.first else { return }
+            let localIP = try platform.network.localIPAddress()
+            let strategy = SIPKeepAlive.strategy(
+                transport: transport,
+                profile: profile,
+                impu: impu,
+                localIP: localIP,
+                localPort: 5060,
+                context: context
+            )
+            try await transport.send(SIPKeepAlive.payload(for: strategy))
+            logger.trace(
+                "Sent transport keep-alive",
+                fields: ["mode": transport.isReliable ? "options" : "crlf"]
+            )
         } catch {
             logger.warn("Keep-alive failed", fields: ["error": String(describing: error)])
         }
+    }
+
+    private static func statusCode(from error: Error) -> Int? {
+        if case RegistrationError.unexpectedStatus(let code) = error { return code }
+        if case ClientTransactionError.unexpectedResponse(let code) = error { return code }
+        return nil
     }
 
     private func logRegistered() {

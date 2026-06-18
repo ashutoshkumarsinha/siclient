@@ -229,10 +229,24 @@ public final class TLSTransport: SIPTransport, @unchecked Sendable {
 
 public enum TransportFactory {
     public static func make(endpoint: PCSCFEndpoint, profile: OperatorProfile) -> any SIPTransport {
-        let transport = profile.security.mechanism == .tls && endpoint.transport == .tls
-            ? endpoint.transport
-            : endpoint.transport
+        let primary = makeSingle(endpoint: endpoint, transport: endpoint.transport)
 
+        if endpoint.transport == .udp,
+           TransportPolicy.fallbackProtocol(for: profile.transport.preference, current: .udp) != nil,
+           let fallbackProtocol = TransportPolicy.fallbackProtocol(for: profile.transport.preference, current: .udp) {
+            let fallbackEndpoint = PCSCFEndpoint(host: endpoint.host, port: endpoint.port, transport: fallbackProtocol)
+            let fallback = makeSingle(endpoint: fallbackEndpoint, transport: fallbackProtocol)
+            return FallbackSIPTransport(
+                primary: primary,
+                fallback: fallback,
+                mtuLimit: profile.resilience.mtuBytes
+            )
+        }
+
+        return primary
+    }
+
+    private static func makeSingle(endpoint: PCSCFEndpoint, transport: TransportProtocol) -> any SIPTransport {
         switch transport {
         case .udp:
             return UDPTransport(host: endpoint.host, port: endpoint.port)

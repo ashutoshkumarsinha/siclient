@@ -2,6 +2,7 @@ import Foundation
 
 public final class MockPCSCFState: @unchecked Sendable {
     public var registered = false
+    public var registerAttemptCount = 0
 
     public init() {}
 }
@@ -16,6 +17,8 @@ public enum MockPCSCFResponder {
             case .request(let request) = try? SIPParser.parse(requestData),
             request.method == SIPMethod.register.rawValue
         else { return nil }
+
+        state.registerAttemptCount += 1
 
         let expires = Int(request.headers["Expires"] ?? "3600") ?? 3600
         if expires == 0 {
