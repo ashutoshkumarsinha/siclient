@@ -11,6 +11,9 @@ public enum MediaBootstrap {
     }
 
     public static func codecEngine(for codec: AudioCodec, profile: OperatorProfile) -> any AudioCodecEngine {
+        if codec == .evs {
+            return LabEVSCodecEngine()
+        }
         if profile.media.useFFmpegCodec, FFmpegAMRCodecEngine.isAvailable {
             return FFmpegAMRCodecEngine(codec: codec)
         }

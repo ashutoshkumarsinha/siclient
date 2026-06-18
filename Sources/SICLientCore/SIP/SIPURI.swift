@@ -9,6 +9,7 @@ public enum SIPMethod: String, Sendable {
     case cancel = "CANCEL"
     case update = "UPDATE"
     case prack = "PRACK"
+    case message = "MESSAGE"
 }
 
 public struct SIPURI: Sendable, Equatable {

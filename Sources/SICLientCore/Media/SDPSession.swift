@@ -286,6 +286,7 @@ public enum SDPParser {
             guard payload.count >= 2 else { continue }
             let codecName = payload[1].split(separator: "/").first.map(String.init) ?? ""
             switch codecName.uppercased() {
+            case "EVS": codecs.append(.evs)
             case "AMR-WB": codecs.append(.amrWB)
             case "AMR": codecs.append(.amr)
             case "TELEPHONE-EVENT": codecs.append(.telephoneEvent)

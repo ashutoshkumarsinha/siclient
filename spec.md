@@ -14,7 +14,7 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v0.9 — Phase 4 complete (resilience, transport hardening, acceptance automation, docs).
+**Document status:** v1.0 — Phase 5 complete (emergency, SMS, XCAP, handover hooks, EVS premium).
 
 ---
 
@@ -739,6 +739,16 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | P5.3 | SMS over IMS | 3GPP TS 24.341 |
 | P5.4 | Ut / XCAP supplementary services | Call forwarding, CW |
 | P5.5 | EVS mandatory profile | Premium codec tier |
+
+#### Phase 5 — Checklist
+
+| Done | ID | Task | Artifact |
+|---|---|---|---|
+| [x] | P5.1 | Emergency REGISTER/INVITE with Priority headers | `Emergency/EmergencyService.swift` |
+| [x] | P5.2 | eSRVCC + STIR-SHAK hooks | `Handover/HandoverAdapter.swift`, `STIRSHAKPolicy` |
+| [x] | P5.3 | SMS over IMS (SIP MESSAGE) | `SMS/SMSService.swift` |
+| [x] | P5.4 | XCAP call forwarding client | `Supplementary/SupplementaryServicesClient.swift` |
+| [x] | P5.5 | EVS codec + premium profile | `LabEVSCodecEngine.swift`, `lab-volte-evs-premium.json` |
 
 ---
 

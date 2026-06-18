@@ -19,7 +19,7 @@ swift build
 swift test
 ```
 
-51 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, resilience, performance NFRs, and loopback mock IMS.
+60 unit and integration tests cover profile loading, SIP parsing, IMS headers, registration, SDP/preconditions, MO/MT call flows, RTP/RTCP media, hold/resume, resilience, performance NFRs, and loopback mock IMS.
 
 ## Run
 
@@ -140,6 +140,25 @@ Full acceptance suite:
 ```
 
 See `docs/integration-guide.md` and `docs/api-reference.md`.
+
+## Phase 5 Services
+
+| Feature | API | Profile flag |
+|---|---|---|
+| Emergency IMS | `registerEmergency()`, `placeEmergencyCall()` | `services.emergency.enabled` |
+| SMS over IMS | `sendSMS(to:text:)` | `services.sms.enabled` |
+| Call forwarding (XCAP) | `fetchCallForwarding()`, `setCallForwarding()` | `services.supplementary.enabled` |
+| eSRVCC hooks | `beginESRVCCHandover()`, `completeESRVCCHandover()` | `services.handover.esrvcc_enabled` |
+| STIR-SHAK Identity | auto on INVITE | `services.handover.stir_shak_enabled` |
+| EVS premium codec | SDP + `LabEVSCodecEngine` | `codecs.audio: ["EVS", ...]` |
+
+Premium profile: `profiles/lab-volte-evs-premium.json`
+
+```bash
+swift run siclient --profile profiles/lab-volte-01.json --emergency-call
+swift run siclient --profile profiles/lab-volte-01.json --send-sms tel:+15551212 "hello"
+swift run siclient --profile profiles/lab-volte-01.json --set-call-forwarding tel:+15559876
+```
 
 ## Phase 3 Exit Gate
 

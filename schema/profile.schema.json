@@ -140,6 +140,47 @@
         }
       }
     },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emergency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "sos_uri": { "type": "string" },
+            "default_number": { "type": "string" }
+          }
+        },
+        "sms": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "smsc_uri": { "type": "string" }
+          }
+        },
+        "supplementary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "xcap_root_uri": { "type": "string" },
+            "auid": { "type": "string" }
+          }
+        },
+        "handover": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "esrvcc_enabled": { "type": "boolean" },
+            "stir_shak_enabled": { "type": "boolean" },
+            "lab_identity_header": { "type": "string" }
+          }
+        }
+      }
+    },
     "lab_sim": {
       "type": "object",
       "description": "Development-only SIM credentials and AKA test vectors",

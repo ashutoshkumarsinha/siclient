@@ -9,6 +9,12 @@ struct CLIOptions {
     let callDurationSec: Int
     let holdAfterConnect: Bool
     let dtmfDigit: Character?
+    let emergencyCall: Bool
+    let emergencyDestination: String?
+    let smsDestination: String?
+    let smsText: String?
+    let fetchCallForwarding: Bool
+    let setCallForwardingTarget: String?
 }
 
 enum CLIError: Error, CustomStringConvertible {
@@ -43,9 +49,13 @@ func printUsage() {
       --dry-run              Load profile and adapters without starting signaling
       --deregister           Register then send Expires: 0 deregister
       --mo-call <uri>        Register, place MO VoLTE call, then hang up
-      --call-duration <sec>  Seconds to keep MO call active (default: 2)
+      --call-duration <sec>  Seconds to keep MO/emergency call active (default: 2)
       --hold                 Hold then resume during MO call
       --dtmf <digit>         Send DTMF digit during MO call (0-9, *, #)
+      --emergency-call [uri] Emergency register + call (default tel:112)
+      --send-sms <dest> <text>  Send SMS over IMS after register
+      --fetch-call-forwarding  Read unconditional call forwarding via XCAP
+      --set-call-forwarding <target>  Enable CFU to target via XCAP
       -h, --help             Show this help message
     """
     print(text)
@@ -59,6 +69,12 @@ func parseArguments(_ arguments: [String]) throws -> CLIOptions {
     var callDurationSec = 2
     var holdAfterConnect = false
     var dtmfDigit: Character?
+    var emergencyCall = false
+    var emergencyDestination: String?
+    var smsDestination: String?
+    var smsText: String?
+    var fetchCallForwarding = false
+    var setCallForwardingTarget: String?
 
     var index = 1
     while index < arguments.count {
@@ -76,6 +92,17 @@ func parseArguments(_ arguments: [String]) throws -> CLIOptions {
         case "--hold":
             holdAfterConnect = true
             index += 1
+        case "--fetch-call-forwarding":
+            fetchCallForwarding = true
+            index += 1
+        case "--emergency-call":
+            emergencyCall = true
+            if index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") {
+                emergencyDestination = arguments[index + 1]
+                index += 2
+            } else {
+                index += 1
+            }
         case "--mo-call":
             guard index + 1 < arguments.count else {
                 throw CLIError.missingArgument("--mo-call")
@@ -93,6 +120,19 @@ func parseArguments(_ arguments: [String]) throws -> CLIOptions {
                 throw CLIError.missingArgument("--dtmf")
             }
             dtmfDigit = digit
+            index += 2
+        case "--send-sms":
+            guard index + 2 < arguments.count else {
+                throw CLIError.missingArgument("--send-sms")
+            }
+            smsDestination = arguments[index + 1]
+            smsText = arguments[index + 2]
+            index += 3
+        case "--set-call-forwarding":
+            guard index + 1 < arguments.count else {
+                throw CLIError.missingArgument("--set-call-forwarding")
+            }
+            setCallForwardingTarget = arguments[index + 1]
             index += 2
         case "--profile":
             guard index + 1 < arguments.count else {
@@ -116,7 +156,13 @@ func parseArguments(_ arguments: [String]) throws -> CLIOptions {
         moCallDestination: moCallDestination,
         callDurationSec: callDurationSec,
         holdAfterConnect: holdAfterConnect,
-        dtmfDigit: dtmfDigit
+        dtmfDigit: dtmfDigit,
+        emergencyCall: emergencyCall,
+        emergencyDestination: emergencyDestination,
+        smsDestination: smsDestination,
+        smsText: smsText,
+        fetchCallForwarding: fetchCallForwarding,
+        setCallForwardingTarget: setCallForwardingTarget
     )
 }
 
@@ -133,7 +179,13 @@ struct SICLientCLI {
                     moCallDestination: options.moCallDestination,
                     callDurationSec: options.callDurationSec,
                     holdAfterConnect: options.holdAfterConnect,
-                    dtmfDigit: options.dtmfDigit
+                    dtmfDigit: options.dtmfDigit,
+                    emergencyCall: options.emergencyCall,
+                    emergencyDestination: options.emergencyDestination,
+                    smsDestination: options.smsDestination,
+                    smsText: options.smsText,
+                    fetchCallForwarding: options.fetchCallForwarding,
+                    setCallForwardingTarget: options.setCallForwardingTarget
                 )
             )
             try await app.run()

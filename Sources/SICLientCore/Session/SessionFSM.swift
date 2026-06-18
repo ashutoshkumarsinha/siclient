@@ -71,7 +71,8 @@ public actor SessionFSM {
 
     public func originateCall(
         to destinationURI: String,
-        registration: RegistrationContext
+        registration: RegistrationContext,
+        emergency: Bool = false
     ) async throws -> SessionContext {
         guard registration.serviceRoute != nil || registration.defaultIMPU != nil else {
             throw SessionError.notRegistered
@@ -116,23 +117,41 @@ public actor SessionFSM {
             includeVideo: profile.media.enableVideo
         )
 
-        let invite = SessionRequestBuilder.makeInvite(
-            profile: profile,
-            impu: impu,
-            pani: pani,
-            localIP: localIP,
-            localPort: 5060,
-            destinationURI: destinationURI,
-            dialog: dialog,
-            registration: registration,
-            sdp: offer,
-            securityAssociation: registration.securityAssociation
-        )
-        pendingInvite = invite
+        let invite: SIPRequest
+        if emergency {
+            invite = EmergencyRequestBuilder.makeEmergencyInvite(
+                profile: profile,
+                impu: impu,
+                pani: pani,
+                localIP: localIP,
+                localPort: 5060,
+                destinationURI: destinationURI,
+                dialog: dialog,
+                registration: registration,
+                sdp: offer,
+                securityAssociation: registration.securityAssociation
+            )
+        } else {
+            invite = SessionRequestBuilder.makeInvite(
+                profile: profile,
+                impu: impu,
+                pani: pani,
+                localIP: localIP,
+                localPort: 5060,
+                destinationURI: destinationURI,
+                dialog: dialog,
+                registration: registration,
+                sdp: offer,
+                securityAssociation: registration.securityAssociation
+            )
+        }
+        var signedInvite = invite
+        STIRSHAKPolicy.attachIdentity(to: &signedInvite.headers, profile: profile)
+        pendingInvite = signedInvite
 
         let transaction = InviteClientTransaction(transport: transport, logger: logger)
         let inviteDialog = dialog
-        let result = try await transaction.sendInvite(invite) { [profile] provisional in
+        let result = try await transaction.sendInvite(signedInvite) { [profile] provisional in
             guard let rseq = provisional.headers["RSeq"],
                   let cseq = provisional.headers["CSeq"] else { return nil }
             var prackDialog = inviteDialog

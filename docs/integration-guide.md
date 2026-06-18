@@ -116,3 +116,37 @@ Registration retries honor `resilience.max_registration_retries`.
 | MO call setup (registered) | < 3 s |
 
 Measured in `PerformanceTests` against mock IMS.
+
+## Phase 5 Features
+
+### Emergency call
+
+```bash
+swift run siclient --profile profiles/lab-volte-01.json --emergency-call tel:112
+```
+
+```swift
+let emergencyContext = try await service.registerEmergency()
+let session = try await service.placeEmergencyCall(registration: emergencyContext)
+```
+
+### SMS over IMS
+
+```bash
+swift run siclient --profile profiles/lab-volte-01.json --send-sms tel:+15551212 "hello"
+```
+
+### Call forwarding (XCAP)
+
+```bash
+swift run siclient --profile profiles/lab-volte-01.json --set-call-forwarding tel:+15559876
+swift run siclient --profile profiles/lab-volte-01.json --fetch-call-forwarding
+```
+
+### EVS premium profile
+
+Use `profiles/lab-volte-evs-premium.json` with `codecs.audio: ["EVS", "AMR-WB", "AMR"]`.
+
+### eSRVCC / STIR-SHAK
+
+Enable in profile `services.handover`. STIR-SHAK adds an `Identity` header on MO INVITE; eSRVCC hooks fire via `beginESRVCCHandover()` / `completeESRVCCHandover()` during an active call.

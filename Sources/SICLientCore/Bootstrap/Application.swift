@@ -8,6 +8,12 @@ public struct ApplicationOptions: Sendable {
     public let callDurationSec: Int
     public let holdAfterConnect: Bool
     public let dtmfDigit: Character?
+    public let emergencyCall: Bool
+    public let emergencyDestination: String?
+    public let smsDestination: String?
+    public let smsText: String?
+    public let fetchCallForwarding: Bool
+    public let setCallForwardingTarget: String?
 
     public init(
         profilePath: String,
@@ -16,7 +22,13 @@ public struct ApplicationOptions: Sendable {
         moCallDestination: String? = nil,
         callDurationSec: Int = 2,
         holdAfterConnect: Bool = false,
-        dtmfDigit: Character? = nil
+        dtmfDigit: Character? = nil,
+        emergencyCall: Bool = false,
+        emergencyDestination: String? = nil,
+        smsDestination: String? = nil,
+        smsText: String? = nil,
+        fetchCallForwarding: Bool = false,
+        setCallForwardingTarget: String? = nil
     ) {
         self.profilePath = profilePath
         self.dryRun = dryRun
@@ -25,6 +37,12 @@ public struct ApplicationOptions: Sendable {
         self.callDurationSec = callDurationSec
         self.holdAfterConnect = holdAfterConnect
         self.dtmfDigit = dtmfDigit
+        self.emergencyCall = emergencyCall
+        self.emergencyDestination = emergencyDestination
+        self.smsDestination = smsDestination
+        self.smsText = smsText
+        self.fetchCallForwarding = fetchCallForwarding
+        self.setCallForwardingTarget = setCallForwardingTarget
     }
 }
 
@@ -96,6 +114,46 @@ public struct Application: Sendable {
         }
 
         try await service.register()
+
+        if options.fetchCallForwarding || options.setCallForwardingTarget != nil {
+            if let target = options.setCallForwardingTarget {
+                try await service.setCallForwarding(active: true, target: target)
+                logger.info("Call forwarding enabled", fields: ["target": target])
+            }
+            if options.fetchCallForwarding || options.setCallForwardingTarget != nil {
+                let rule = try await service.fetchCallForwarding()
+                logger.info(
+                    "Call forwarding status",
+                    fields: ["active": String(rule.active), "target": rule.target ?? ""]
+                )
+            }
+            return
+        }
+
+        if let smsDestination = options.smsDestination, let smsText = options.smsText {
+            try await service.sendSMS(to: smsDestination, text: smsText)
+            logger.info("SMS flow complete", fields: ["destination": smsDestination])
+            return
+        }
+
+        if options.emergencyCall {
+            let emergencyContext = try await service.registerEmergency()
+            let session = try await service.placeEmergencyCall(
+                to: options.emergencyDestination,
+                registration: emergencyContext
+            )
+            logger.info(
+                "Emergency call established",
+                fields: [
+                    "destination": session.remoteURI,
+                    "codec": session.negotiatedCodec?.rawValue ?? "",
+                ]
+            )
+            try await Task.sleep(for: .seconds(options.callDurationSec))
+            try await service.hangUp()
+            logger.info("Emergency call flow complete", fields: [:])
+            return
+        }
 
         if let destination = options.moCallDestination {
             let session = try await service.placeCall(to: destination)

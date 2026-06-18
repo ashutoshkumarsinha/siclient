@@ -67,6 +67,18 @@ Public surface of `SICLientCore` for IMS registration, session control, and medi
 | `PerformanceMetrics` / `PerformanceBenchmarks` | NFR timing helpers |
 | `Logger` | JSON structured logs with secret redaction |
 
+## Phase 5 Services
+
+| Type | Description |
+|---|---|
+| `EmergencyService` | Emergency REGISTER + INVITE with Priority headers |
+| `SMSService` | SIP MESSAGE for SMS over IMS |
+| `SupplementaryServicesClient` | XCAP GET/PUT for call forwarding |
+| `ESRVCCCoordinator` / `HandoverAdapter` | eSRVCC handover event hooks |
+| `STIRSHAKPolicy` | Attach Identity header on INVITE |
+| `LabEVSCodecEngine` | EVS RTP framing stub for premium profiles |
+| `ServicesConfig` | Profile block for emergency/SMS/XCAP/handover |
+
 ## Configuration
 
 | Type | Description |

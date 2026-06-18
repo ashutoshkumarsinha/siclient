@@ -35,6 +35,8 @@ public enum MockIMSResponder {
         case SIPMethod.bye.rawValue:
             state.byeCount += 1
             return [SIPSerializer.serialize(.response(SessionRequestBuilder.makeOK(for: request)))]
+        case SIPMethod.message.rawValue:
+            return [SIPSerializer.serialize(.response(SIPResponse(statusCode: 202, reasonPhrase: "Accepted")))]
         case SIPMethod.ack.rawValue:
             return []
         default:

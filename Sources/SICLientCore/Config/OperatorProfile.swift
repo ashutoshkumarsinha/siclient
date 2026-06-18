@@ -132,6 +132,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
     public var timers: TimersConfig
     public var media: MediaConfig
     public var resilience: ResilienceConfig
+    public var services: ServicesConfig
     public var labSim: LabSimConfig?
 
     enum CodingKeys: String, CodingKey {
@@ -145,6 +146,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         case timers
         case media
         case resilience
+        case services
         case labSim = "lab_sim"
     }
 
@@ -159,6 +161,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         timers: TimersConfig = TimersConfig(),
         media: MediaConfig = MediaConfig(),
         resilience: ResilienceConfig = ResilienceConfig(),
+        services: ServicesConfig = ServicesConfig(),
         labSim: LabSimConfig? = nil
     ) {
         self.profileID = profileID
@@ -171,6 +174,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         self.timers = timers
         self.media = media
         self.resilience = resilience
+        self.services = services
         self.labSim = labSim
     }
 
@@ -186,6 +190,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         timers = try container.decodeIfPresent(TimersConfig.self, forKey: .timers) ?? TimersConfig()
         media = try container.decodeIfPresent(MediaConfig.self, forKey: .media) ?? MediaConfig()
         resilience = try container.decodeIfPresent(ResilienceConfig.self, forKey: .resilience) ?? ResilienceConfig()
+        services = try container.decodeIfPresent(ServicesConfig.self, forKey: .services) ?? ServicesConfig()
         labSim = try container.decodeIfPresent(LabSimConfig.self, forKey: .labSim)
     }
 
@@ -201,6 +206,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
         try container.encode(timers, forKey: .timers)
         try container.encode(media, forKey: .media)
         try container.encode(resilience, forKey: .resilience)
+        try container.encode(services, forKey: .services)
         try container.encodeIfPresent(labSim, forKey: .labSim)
     }
 }
