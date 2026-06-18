@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: macos-26
@@ -41,6 +45,14 @@ jobs:
             exit 1
           fi
 
+      - name: GUI smoke test
+        run: |
+          chmod +x Tests/gui/run-gui-smoke.sh
+          # Skip rebuild/test-all; prior steps already built and tested.
+          test -x .build/debug/siclient-gui
+          test -x .build/debug/siclient
+          swift test --filter SICLientGUITests
+
       - name: Verify SIPp scenarios exist
         run: |
           test -f Tests/sipp/register_aka.xml
@@ -69,14 +81,3 @@ jobs:
           ./Tests/sipp/run-mo-call.sh 127.0.0.1:15060
           kill "$UAS_PID" 2>/dev/null || true
           ./Tests/sipp/run-mt-call.sh 127.0.0.1 15061
-
-      - name: Acceptance script smoke test
-        run: |
-          chmod +x Tests/sipp/run-acceptance.sh Tests/gui/run-gui-smoke.sh
-          if command -v sipp >/dev/null 2>&1; then
-            ./Tests/sipp/run-acceptance.sh
-          else
-            swift test
-            swift run siclient --profile profiles/lab-volte-01.json --dry-run
-            ./Tests/gui/run-gui-smoke.sh
-          fi

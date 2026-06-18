@@ -227,7 +227,14 @@ Mac (siclient) ──Gm/SIP──► P-CSCF ──► S-CSCF ──► HSS
 
 ### CI / headless automation
 
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs on `macos-26`:
+| Workflow | Purpose |
+|---|---|
+| `.github/workflows/ci.yml` | Build, 122 tests, CLI/GUI smoke, optional SIPp |
+| `.github/workflows/codeql.yml` | CodeQL advanced setup (Swift + Actions) |
+
+Code scanning uses **advanced setup** with manual `swift build`. Do not enable CodeQL default setup on the same repository — GitHub rejects duplicate SARIF uploads.
+
+CI runs on `macos-26`:
 
 ```yaml
 - run: swift build -v
