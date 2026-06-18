@@ -14,7 +14,17 @@ This document defines the system requirements, architecture, signaling complianc
 | SIP core | RFC 3261 |
 | ISIM/USIM application | 3GPP TS 31.103, TS 31.102 |
 
-**Document status:** v1.0 — Phase 5 complete (emergency, SMS, XCAP, handover hooks, EVS premium).
+**Document status:** v1.1 — Phases 0–5 implemented in `SICLientCore` (60 Swift tests, SIPp signaling conformance). See **§14** for lab vs production fidelity.
+
+**Implementation snapshot (2026-06-18)**
+
+| Metric | Value |
+|---|---|
+| Swift tests | 60 (mock/loopback CI) |
+| SIPp scenarios | 8 XML + acceptance script |
+| Profiles | `lab-volte-01.json`, `lab-volte-evs-premium.json` |
+| CLI | register, MO call, hold/DTMF, emergency, SMS, XCAP CFU |
+| Platform | macOS 26 (Tahoe), Swift 6.2+ |
 
 ---
 
@@ -33,17 +43,40 @@ This document defines the system requirements, architecture, signaling complianc
 - Operator profile-driven configuration (APN, P-CSCF discovery, transport preference)
 - Structured logging, diagnostics, and conformance test hooks
 
-### 0.2 Out of Scope (Initial Release)
+### 0.2 Out of Scope (Not Planned for Current Codebase)
 
-- Ut / XCAP supplementary services management UI
 - RCS / MSRP messaging
-- eSRVCC / vSRVCC handover signaling (planned Phase 2)
-- Emergency call (IMS emergency registration) — planned Phase 2
-- SMS over IMS (3GPP TS 24.341) — planned Phase 2
-- Full IMS conferencing (RFC 4579) — planned Phase 3
+- Full IMS conferencing (RFC 4579)
 - Production SIM OTA provisioning tools
+- Ut / XCAP **management UI** (API exists; no GUI)
+- Licensed EVS / AMR codec distribution (integrator supplies)
+- macOS-native IPSec-UE APIs (see ADR 0001)
 
-### 0.3 Assumptions
+### 0.3 Phase 5 Lab Extensions (Stub / Hook Level)
+
+The following were added in Phase 5 as **lab-ready APIs** with mock/loopback tests. They are **not** production-interop complete:
+
+| Feature | Lab status | Production gap |
+|---|---|---|
+| Emergency IMS | REGISTER/INVITE with Priority headers | Real E-CSCF routing, anonymous credentials |
+| SMS over IMS | MO SIP MESSAGE → 202 | TS 24.341 RP-ACK payload, MT SMS, SMSC dialogs |
+| XCAP / Ut | CFU GET/PUT (in-memory or URLSession) | HTTP digest, CW/CFNR/barring, real AS |
+| eSRVCC / STIR-SHAK | Event hooks + lab Identity header | SIP handover, PASSporT verification |
+| EVS premium | SDP + lab RTP framing | Licensed EVS encoder/decoder |
+
+### 0.4 Implementation Fidelity Legend
+
+Used throughout §8, §10, and §14:
+
+| Tag | Meaning |
+|---|---|
+| **Complete** | Meets spec intent in lab and mock CI |
+| **Lab** | Works against mock IMS / loopback; not verified on operator core |
+| **Stub** | API/signaling shell; no real media/security/interop |
+| **Deferred** | Explicitly out of current delivery (ADR or checklist open item) |
+| **Not started** | No code path |
+
+### 0.5 Assumptions
 
 - UE has a valid ISIM or USIM with IMS credentials and at least one IMPU
 - Lower layers provide: IP connectivity, EPS bearer management callbacks, and cell/access identity for PANI
@@ -96,11 +129,16 @@ The IMS SIP Client resides within the User Equipment (UE) and interacts with the
 | **RTP Engine** | RTP/RTCP, jitter stats, DTMF (RFC 4733) |
 | **Platform Adapter** | Bearer QoS requests, PANI, P-CSCF discovery, keep-alive |
 | **Diagnostics** | SIP trace, metrics, test injection APIs |
+| **Emergency** | Emergency REGISTER/INVITE (TS 24.229 subset) — `Emergency/` |
+| **SMS** | MO SIP MESSAGE over IMS — `SMS/` |
+| **Supplementary (Ut/XCAP)** | HTTP XCAP for MMTel servdocs (CFU) — `Supplementary/` |
+| **Handover hooks** | eSRVCC events, STIR-SHAK Identity attachment — `Handover/` |
+| **Resilience** | IP/RAT re-register, retry, MTU fallback — `Registration/`, `Transport/` |
 
 ### 1.2 Reference Interfaces
 
 - **Gm Interface:** UE ↔ P-CSCF. SIP and SDP over UDP, TCP, or TLS per 3GPP TS 24.229.
-- **Ut Interface (optional, Phase 2):** UE ↔ Application Server. XCAP over HTTP for supplementary services.
+- **Ut Interface (optional):** UE ↔ Application Server. XCAP over HTTP for supplementary services (`SupplementaryServicesClient`).
 
 ---
 
@@ -130,8 +168,8 @@ Execute IMS-AKA via two-step REGISTER handshake:
 
 1. **Initial REGISTER** — Unprotected REGISTER to P-CSCF with IMPI, IMPU, empty `Authorization` header, `Security-Client`, `Supported: path, outbound`, and required P-headers.
 2. **401 Challenge** — Network returns `WWW-Authenticate` with RAND, AUTN, and algorithm parameters.
-3. **SIM Verification** — Pass RAND/AUTN to SIM. On valid AUTN: compute RES, IK, CK. On sync failure: report `AUTS` per TS 33.203.
-4. **Protected REGISTER** — Second REGISTER with RES in `Authorization`, over established IPSec SA or TLS per negotiated mechanism.
+3. **SIM Verification** — Pass RAND/AUTN to SIM. On valid AUTN: compute RES, IK, CK. On sync failure: compute **AUTS** and send in follow-up REGISTER per TS 33.203 *(Lab: `LabSimAdapter` returns AUTS; FSM currently throws — see §14.2)*.
+4. **Protected REGISTER** — Second REGISTER with RES in `Authorization`, over established IPSec SA or TLS per negotiated mechanism *(Lab: TLS is TCP-only wrapper; IPSec SA **Deferred**)*.
 5. **200 OK** — Parse `Service-Route`, `P-Associated-URI`, `Security-Server`, `Expires` / `Contact` expiry, and `P-Charging-Vector` if present.
 
 ### 2.3 Registration Lifecycle
@@ -295,16 +333,25 @@ Per RFC 3312 and TS 24.229:
 | **MO call setup (idle, registered)** | < 3s to ringback (lab IMS, preconditions met) |
 | **Registration after attach** | < 2s after IP + P-CSCF known |
 | **Memory (embedded target)** | SIP stack + 1 call < 2MB RAM (guideline; measure per platform) |
-| **Concurrency** | Minimum 1 active call + 1 held call; signaling for 2 dialogs |
-| **Availability** | Auto-recover from transient network loss within 30s |
-| **Security** | No cleartext SIP after SA established; keys zeroized on deregister |
-| **Logging** | Configurable SIP message trace (sanitize RES/IK/CK) |
+| **Concurrency** | Minimum 1 active call + 1 held call; signaling for 2 dialogs | **Not started** |
+| **Availability** | Auto-recover from transient network loss within 30s | **Lab** — `scheduleNetworkRecovery`, mock tests |
+| **Security** | No cleartext SIP after SA established; keys zeroized on deregister | **Partial** — `SecurityPolicy` on signaling; IPSec **Deferred**; key zeroization **Not started** |
+| **Logging** | Configurable SIP message trace (sanitize RES/IK/CK) | **Complete** — `SecretRedactor`, CI leak check |
+
+#### 5.1.1 NFR Verification Status
+
+| NFR | Target | Measured | Status |
+|---|---|---|---|
+| Registration (loopback) | < 2 s | `PerformanceTests.registrationMeetsNFRTarget` | **Lab** |
+| MO call setup (loopback) | < 3 s | `PerformanceTests.moCallSetupMeetsNFRTarget` | **Lab** |
+| Memory (embedded) | < 2 MB | — | **Not started** |
+| 1 active + 1 held call | 2 dialogs | Single `activeSession` only | **Not started** |
 
 ---
 
 ## 6. Configuration & Operator Profiles
 
-Profiles are JSON or structured files loaded at startup:
+Profiles are JSON files loaded at startup (`ProfileLoader`). Schema: `schema/profile.schema.json`.
 
 ```json
 {
@@ -312,18 +359,47 @@ Profiles are JSON or structured files loaded at startup:
   "home_domain": "ims.mnc001.mcc001.3gppnetwork.org",
   "pcscf": { "mode": "static", "address": "10.0.0.1", "port": 5060 },
   "transport": { "preference": ["udp", "tcp", "tls"] },
-  "security": { "mechanism": "ipsec-3gpp" },
+  "security": { "mechanism": "tls" },
   "codecs": { "audio": ["AMR-WB", "AMR"], "video": ["H264", "H265"] },
   "preconditions": { "enabled": true, "fail_timeout_ms": 8000 },
-  "timers": { "registration_refresh_ratio": 0.8, "keepalive_sec": 45 }
+  "timers": { "registration_refresh_ratio": 0.8, "keepalive_sec": 45 },
+  "media": {
+    "rtp_transport": "udp",
+    "local_rtp_port": 40000,
+    "enable_audio_io": false,
+    "enable_video": false,
+    "use_ffmpeg_codec": false
+  },
+  "resilience": {
+    "mtu_bytes": 1300,
+    "max_registration_retries": 3,
+    "network_recovery_timeout_sec": 30
+  },
+  "services": {
+    "emergency": { "enabled": true, "sos_uri": "sip:sos@domain", "default_number": "112" },
+    "sms": { "enabled": true, "smsc_uri": "sip:smsc@domain" },
+    "supplementary": {
+      "enabled": true,
+      "xcap_root_uri": "http://xcap.domain/xcap-root",
+      "auid": "org.3gpp.mmtel.registration"
+    },
+    "handover": {
+      "esrvcc_enabled": true,
+      "stir_shak_enabled": true,
+      "lab_identity_header": "eyJ..."
+    }
+  },
+  "lab_sim": { "impi": "...", "impus": ["..."], "aka_vectors": [] }
 }
 ```
 
+**Premium EVS profile:** `profiles/lab-volte-evs-premium.json` — `"codecs": { "audio": ["EVS", "AMR-WB", "AMR"] }`.
+
 **Requirements**
 
-- Hot-reload of non-security parameters where safe
-- Per-profile codec and precondition policy
-- SIM-independent lab mode with injected IMPI/IMPU/keys for CI (development only)
+- Hot-reload of non-security parameters where safe — **Not started** (startup load only)
+- Per-profile codec, media, resilience, and services policy — **Complete**
+- SIM-independent lab mode with injected IMPI/IMPU/keys for CI — **Complete** (`lab_sim` block)
 
 ---
 
@@ -342,56 +418,110 @@ Profiles are JSON or structured files loaded at startup:
 ### 7.2 Diagnostics
 
 - Correlation ID per registration attempt and per call
-- Counters: register success/fail, call setup time, precondition wait time, RTP packet loss
-- Export: structured logs (JSON lines) and optional pcap hook for lab builds
+- Counters: register success/fail, call setup time, precondition wait time, RTP packet loss — **Partial** (`PerformanceMetrics`, `RTPStreamStats`)
+- Export: structured logs (JSON lines) and optional pcap hook for lab builds — **Partial** (JSON logs **Complete**; pcap hook **Not started**)
 
 ---
 
 ## 8. Acceptance Criteria
 
+Criteria are split into **Lab** (mock IMS / loopback CI) and **Production** (operator IMS core, real SIM, media interop).
+
 ### 8.1 Registration
 
-- [x] Successful IMS-AKA registration against lab P-CSCF with ISIM credentials
-- [x] Re-registration before expiry without user-visible interruption
-- [x] Clean deregister (`Expires: 0`) tears down IPSec/TLS
-- [x] AUTS returned on AUTN sync failure (simulated)
+| Criterion | Lab | Production | Fidelity |
+|---|---|---|---|
+| IMS-AKA two-step REGISTER | [x] | [ ] | **Lab** — `LabSimAdapter` vectors |
+| Re-register before expiry | [x] | [ ] | **Lab** — `reRegisterCycle` test |
+| Deregister `Expires: 0` | [x] | [ ] | **Lab** — SA context cleared in FSM |
+| AUTS on sync failure | [ ] | [ ] | **Stub** — SIM returns AUTS; FSM throws (§14.2) |
+| Real ISIM / USIM | — | [ ] | **Not started** |
+| IPSec-3GPP SA post-200 | — | [ ] | **Deferred** (W6.2) |
+| TLS with certificate validation | — | [ ] | **Stub** — TCP wrapper only |
 
 ### 8.2 Voice Call
 
-- [x] MO AMR-WB call with preconditions completes end-to-end in lab
-- [x] MT call rings only after precondition `met`
-- [x] BYE releases bearer and RTP resources
-- [x] Hold/resume via re-INVITE succeeds
+| Criterion | Lab | Production | Fidelity |
+|---|---|---|---|
+| MO AMR-WB + preconditions | [x] | [ ] | **Lab** — mock + SIPp |
+| MT precondition gating | [x] | [ ] | **Lab** — `InviteServerTransaction` |
+| BYE releases bearer + RTP | [x] | [ ] | **Lab** |
+| Hold/resume re-INVITE | [x] | [ ] | **Lab** |
+| Two-way audible RTP | [ ] | [ ] | **Stub** — optional `AudioIODevice` |
+| Licensed AMR encode/decode | — | [ ] | **Stub** — lab framing / FFmpeg AMR |
 
 ### 8.3 Signaling Compliance
 
-- [x] Required P-headers present on REGISTER and INVITE
-- [x] `Service-Route` used for MO INVITE
-- [x] Security-Client/Verify exchange matches TS 33.203 profile
+| Criterion | Lab | Production | Fidelity |
+|---|---|---|---|
+| P-headers on REGISTER/INVITE | [x] | [ ] | **Complete** |
+| `Service-Route` on MO INVITE | [x] | [ ] | **Complete** |
+| Security-Client/Verify headers | [x] | [ ] | **Lab** — parsed; IPSec not established |
 
 ### 8.4 Resilience
 
-- [x] Survive P-CSCF TCP reconnect without crash
-- [x] Recover registration after 10s IP disconnect
+| Criterion | Lab | Production | Fidelity |
+|---|---|---|---|
+| TCP fallback / no crash on reconnect | [x] | [ ] | **Lab** |
+| IP/RAT change re-register | [x] | [ ] | **Lab** — `handleNetworkPathChange` |
+| Registration retry 408/503 | [x] | [ ] | **Lab** |
+| Reg loss during active call → BYE | [ ] | [ ] | **Not started** |
+
+### 8.5 Phase 5 Services (Lab)
+
+| Criterion | Lab | Production | Fidelity |
+|---|---|---|---|
+| Emergency REGISTER/INVITE headers | [x] | [ ] | **Stub** |
+| MO SMS (SIP MESSAGE) | [x] | [ ] | **Stub** — plain text, no RP-ACK |
+| XCAP call forwarding CFU | [x] | [ ] | **Stub** — in-memory / URLSession |
+| eSRVCC handover hooks | [x] | [ ] | **Stub** — events only |
+| STIR-SHAK Identity on INVITE | [x] | [ ] | **Stub** — lab header string |
+| EVS in SDP + lab RTP | [x] | [ ] | **Stub** |
+
+### 8.6 Production Exit Gate (Not Met)
+
+The following must pass before a **production** release candidate:
+
+- [ ] REGISTER against operator P-CSCF with real ISIM
+- [ ] IPSec-3GPP or validated TLS to operator root
+- [ ] MO voice with two-way RTP on operator IMS
+- [ ] AUTS re-synchronization REGISTER flow
+- [ ] 1 active + 1 held call (2 dialogs)
+- [ ] P-CSCF discovery via PCO/DHCP or DNS NAPTR/SRV
+- [ ] Memory budget measured on target platform
 
 ---
 
 ## 9. Test Strategy
 
-| Layer | Approach |
+| Layer | Approach | Status |
+|---|---|---|
+| **Unit** | AKA vectors, SDP, headers, FSM, resilience, Phase 5 builders | 60 tests in CI |
+| **Integration** | `MockPCSCFResponder`, `MockIMSResponder`, loopback transports | **Complete** |
+| **Conformance** | SIPp XML (when `sipp` installed in CI) | **Lab** — signaling only |
+| **Acceptance** | `Tests/sipp/run-acceptance.sh` | **Complete** |
+| **Performance** | `PerformanceTests` vs §5.1 NFR targets | **Lab** — loopback timing |
+| **Interop** | Operator IMS + real UE | **Not started** |
+| **Media** | RTP loopback, RTCP SR/RR, UDP RTP unit test | **Lab** — no SIPp RTP |
+
+**SIPp scenarios (committed)**
+
+| File | Purpose |
 |---|---|
-| **Unit** | AKA vector tests, SDP builder/parser, header serialization, FSM transitions |
-| **Integration** | Mock P-CSCF (SIPp scenarios), simulated SIM, mock bearer callbacks |
-| **Conformance** | SIPp XML scenarios for register, MO/MT, precondition, deregister |
-| **Interop** | Lab IMS core + real UE or softphone peer |
-| **Media** | RTP loopback; verify AMR-WB payload type and RTCP SR/RR |
+| `register_aka.xml` | Two-step REGISTER |
+| `deregister.xml` / `register_deregister.xml` | Expires 0 |
+| `mo_volte_precondition.xml` | MO 183/PRACK/UPDATE |
+| `mt_volte.xml` / `uas_volte_call.xml` | MT precondition UAS |
+| `pcscf_register_uas.xml` | P-CSCF UAS for register |
 
-**Reference SIPp scenarios to implement**
+**Not yet in SIPp:** emergency call, SMS MESSAGE, XCAP, RTP media bearers, IPSec.
 
-1. `register_aka.xml` — two-step REGISTER
-2. `mo_volte_precondition.xml` — INVITE with 183/PRACK
-3. `mt_volte.xml` — incoming with precondition answer
-4. `deregister.xml` — Expires 0
+**Run locally**
+
+```bash
+swift test
+./Tests/sipp/run-acceptance.sh
+```
 
 ---
 
@@ -678,7 +808,7 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 
 **Exit gate:** Two-way audio in lab call; video if peer supports; hold/resume verified.
 
-#### Phase 3 — Week-by-Week Checklist (in progress)
+#### Phase 3 — Week-by-Week Checklist (complete)
 
 | Done | ID | Task | Artifact |
 |:---:|---|---|---|
@@ -693,9 +823,9 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | [x] | W11.9 | Hold/resume via re-INVITE (`sendonly`/`sendrecv`) | `SessionFSM.holdActiveCall` |
 | [x] | W11.10 | SIP error mapping (Phase 4 overlap) | `SIP/SIPErrorMapper.swift` |
 | [x] | W12.1 | Production UDP RTP transport (Network.framework) | `Media/RTP/UDPRTPTransport.swift` |
-| [x] | W12.2 | Real AMR/AMR-WB codec library integration (FFmpeg subprocess) | `Media/Audio/FFmpegAMRCodecEngine.swift` |
-| [x] | W12.3 | ViLTE RTP video path (stats stub) | `Media/Video/VideoRTPSession.swift` |
-| [x] | W12.4 | Lab two-way audio interop (AVAudioEngine + profile flags) | `Media/Audio/AudioIODevice.swift`, `media.enable_audio_io` |
+| [x] | W12.2 | AMR/AMR-WB via FFmpeg subprocess (optional) + lab framing stub | `FFmpegAMRCodecEngine`, `LabAMRCodecEngine` |
+| [x] | W12.3 | ViLTE RTP video path (stats stub) | `VideoRTPSession` — **Stub** (no H.264 encode) |
+| [x] | W12.4 | Lab two-way audio path (AVAudioEngine + profile flags) | `AudioIODevice` — **Lab** |
 
 ---
 
@@ -710,7 +840,7 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 | P4.5 | API reference + integration guide | Developer documentation | All |
 | P4.6 | Performance measurement vs NFR targets | Benchmark report | P3.2 |
 
-**Exit gate:** All Section 8 acceptance criteria pass in CI/lab.
+**Exit gate:** All §8 **Lab** acceptance criteria pass in CI/mock IMS. Production gate in §8.6.
 
 #### Phase 4 — Week-by-Week Checklist
 
@@ -730,25 +860,47 @@ At this staffing (~3.25 FTE average), Phase 0–1 fits **6 calendar weeks** with
 
 ---
 
-### Phase 5 — Backlog (Future)
+### Phase 5 — Extended Services (Weeks 17–18)
 
-| ID | Activity | Notes |
-|---|---|---|
-| P5.1 | Emergency IMS registration/call | TS 24.229 emergency profiles |
-| P5.2 | eSRVCC / STIR-SHAK hooks | Operator-specific |
-| P5.3 | SMS over IMS | 3GPP TS 24.341 |
-| P5.4 | Ut / XCAP supplementary services | Call forwarding, CW |
-| P5.5 | EVS mandatory profile | Premium codec tier |
+| ID | Activity | Deliverable | Fidelity |
+|---|---|---|---|
+| P5.1 | Emergency IMS registration/call | `Emergency/` | **Stub** |
+| P5.2 | eSRVCC / STIR-SHAK hooks | `Handover/` | **Stub** |
+| P5.3 | SMS over IMS | `SMS/` | **Stub** |
+| P5.4 | Ut / XCAP supplementary services | `Supplementary/` | **Stub** |
+| P5.5 | EVS mandatory profile | `LabEVSCodecEngine`, premium profile | **Stub** |
+
+**Exit gate:** Phase 5 APIs compile, CLI flags work, mock/loopback tests pass. Production interop tracked in §14.
 
 #### Phase 5 — Checklist
 
-| Done | ID | Task | Artifact |
+| Done | ID | Task | Artifact | Fidelity |
+|:---:|---|---|---|---|
+| [x] | P5.1 | Emergency REGISTER/INVITE with Priority headers | `Emergency/EmergencyService.swift` | **Stub** |
+| [x] | P5.2 | eSRVCC + STIR-SHAK hooks | `Handover/HandoverAdapter.swift`, `STIRSHAKPolicy` | **Stub** |
+| [x] | P5.3 | SMS over IMS (SIP MESSAGE) | `SMS/SMSService.swift` | **Stub** |
+| [x] | P5.4 | XCAP call forwarding client | `Supplementary/SupplementaryServicesClient.swift` | **Stub** |
+| [x] | P5.5 | EVS codec + premium profile | `LabEVSCodecEngine.swift`, `lab-volte-evs-premium.json` | **Stub** |
+| [x] | P5.6 | Profile `services` block + schema | `ServicesConfig`, `schema/profile.schema.json` | **Complete** |
+| [x] | P5.7 | CLI: `--emergency-call`, `--send-sms`, XCAP CFU | `main.swift`, `Application.swift` | **Lab** |
+| [x] | P5.8 | Phase 5 unit/integration tests | `Phase5Tests.swift` (9 tests) | **Lab** |
+
+---
+
+### Phase 6 — Production Readiness (Planned)
+
+| ID | Activity | Priority | Depends On |
 |---|---|---|---|
-| [x] | P5.1 | Emergency REGISTER/INVITE with Priority headers | `Emergency/EmergencyService.swift` |
-| [x] | P5.2 | eSRVCC + STIR-SHAK hooks | `Handover/HandoverAdapter.swift`, `STIRSHAKPolicy` |
-| [x] | P5.3 | SMS over IMS (SIP MESSAGE) | `SMS/SMSService.swift` |
-| [x] | P5.4 | XCAP call forwarding client | `Supplementary/SupplementaryServicesClient.swift` |
-| [x] | P5.5 | EVS codec + premium profile | `LabEVSCodecEngine.swift`, `lab-volte-evs-premium.json` |
+| P6.1 | IPSec-3GPP SA or production TLS (pinning, mTLS) | P0 | P1.6, W6.2 |
+| P6.2 | Real `SimAdapter` (Secure Element / platform API) | P0 | P1.3 |
+| P6.3 | AUTS re-synchronization REGISTER flow + test | P0 | P1.3 |
+| P6.4 | P-CSCF PCO/DHCP + DNS NAPTR/SRV discovery | P1 | P0.4 |
+| P6.5 | Concurrent calls (1 active + 1 held) | P1 | P2.2 |
+| P6.6 | Licensed AMR/EVS media path + live RTP interop | P1 | P3.2, P5.5 |
+| P6.7 | ViLTE H.264 encode/decode + camera | P2 | P3.4 |
+| P6.8 | Operator IMS interop test plan + runbook | P0 | P4.4 |
+| P6.9 | Deepen Phase 5 (SMS RP-ACK, XCAP auth, eSRVCC SIP) | P2 | P5.* |
+| P6.10 | Profile hot-reload, pcap export, key zeroization | P2 | §6, §7.2 |
 
 ---
 
@@ -759,20 +911,27 @@ P0 (Foundation)
   └─> P1 (SIP + Registration) ──> P2 (Sessions + Preconditions)
                                       └─> P3 (RTP + Media)
                                               └─> P4 (Hardening)
+                                                      └─> P5 (Extended Services, lab stubs)
+                                                              └─> P6 (Production Readiness)
 ```
 
-**Critical path:** P0.1 → P1.1 → P1.4 → P1.6 → P2.2 → P2.3 → P2.5 → P3.2 → P4.4
+**Critical path to lab exit (achieved):** P0.1 → P1.1 → P1.4 → P2.2 → P2.3 → P2.5 → P3.1 → P4.4
+
+**Critical path to production:** P6.1 → P6.2 → P6.8 → P6.6 (parallel: P6.3, P6.4, P6.5)
 
 ---
 
 ## 12. Risks & Mitigations
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| IPSec-3GPP complexity on target OS | Blocks lab register | Offer TLS-first profile for early dev |
-| SIM access restricted on platform | No real AKA | Lab mode with test vectors; hardware dev kit |
-| Operator-specific precondition timing | Call setup failures | Profile-tunable timers; SIPp regression |
-| Codec patent/licensing | Shipping risk | Use established OSS codec stacks; verify licenses |
+| Risk | Impact | Mitigation | Status |
+|---|---|---|---|
+| IPSec-3GPP complexity on macOS | Blocks operator profiles requiring `ipsec-3gpp` | TLS-first lab profile (ADR 0001); P6.1 track | **Open** |
+| SIM access restricted on platform | No real AKA | `LabSimAdapter` for CI; P6.2 hardware path | **Open** |
+| Operator-specific precondition timing | Call setup failures | Profile-tunable `fail_timeout_ms`; SIPp regression | **Mitigated** |
+| Codec patent/licensing | Shipping risk | Lab framing stubs; integrator supplies licensed stack (P6.6) | **Open** |
+| Phase 5 stubs mistaken for production | False readiness | §0.3, §8.5 fidelity tags; §14 matrix | **Mitigated** |
+| Single-dialog SessionFSM | Fails NFR concurrency | P6.5 multi-dialog refactor | **Open** |
+| No live IMS interop CI | Regressions undetected | P6.8 operator runbook; optional nightly lab job | **Open** |
 
 ---
 
@@ -790,9 +949,74 @@ P0 (Foundation)
 | **QCI** | QoS Class Identifier (QCI=1 for voice bearer) |
 | **ViLTE** | Video over LTE |
 
+| **ViLTE** | Video over LTE |
+| **XCAP** | XML Configuration Access Protocol (Ut interface) |
+| **CFU** | Call Forwarding Unconditional |
+| **eSRVCC** | Enhanced Single Radio Voice Call Continuity |
+| **STIR/SHAK** | Secure Telephone Identity Revisited / Signature-based Handling |
+
 ---
 
-## Revision History
+## 14. Implementation Status & Code Map
+
+### 14.1 Module Fidelity Matrix
+
+| Module | Path | Status | Notes |
+|---|---|---|---|
+| Config / profiles | `Config/` | **Complete** | JSON schema, validation, `services`/`media`/`resilience` |
+| SIP stack | `SIP/` | **Lab** | RFC 3261 subset; client transactions |
+| Registration FSM | `Registration/` | **Lab** | Retry, keep-alive, network recovery |
+| Session FSM | `Session/` | **Lab** | Single dialog; MO/MT, hold, CANCEL |
+| Media / RTP | `Media/` | **Lab** | UDP RTP, loopback, lab codecs |
+| Transport | `Transport/` | **Lab** | UDP/TCP/TLS stub, MTU fallback |
+| Security | `Security/` | **Stub** | Header policy; no IPSec SA |
+| Platform adapters | `Platform/` | **Stub** | Lab SIM; static P-CSCF only |
+| Emergency | `Emergency/` | **Stub** | Phase 5 |
+| SMS | `SMS/` | **Stub** | MO MESSAGE only |
+| Supplementary | `Supplementary/` | **Stub** | CFU XCAP |
+| Handover | `Handover/` | **Stub** | Event hooks |
+| Diagnostics | `Diagnostics/` | **Complete** | Logger, redaction, perf timers |
+
+### 14.2 Known Gaps (Code ↔ Spec)
+
+| Spec requirement | Current behavior | Target fix |
+|---|---|---|
+| AUTS on sync failure (§2.2) | `RegistrationFSM` throws `akaFailed` | P6.3: build REGISTER with AUTS |
+| IPSec-3GPP SA (§3.2, W6.2) | Headers only | P6.1 |
+| TLS certificate validation | `TLSTransport` = TCP | P6.1 |
+| PCO/DHCP P-CSCF (§2.1) | `discoveryUnavailable` | P6.4 |
+| DNS NAPTR/SRV (§5) | Passthrough hostname | P6.4 |
+| 2 concurrent dialogs (§5.1) | Single `activeSession` | P6.5 |
+| Reg loss → BYE (§4.1.3) | Not wired | P6.5 |
+| ViLTE RTP (§4.2) | SDP + stats stub | P6.7 |
+| Key zeroization (§5.1) | Not implemented | P6.10 |
+| Profile hot-reload (§6) | Startup only | P6.10 |
+| Pcap export (§7.2) | Not implemented | P6.10 |
+
+### 14.3 CLI Surface
+
+```bash
+siclient --profile <path> [--dry-run | --deregister]
+siclient --profile <path> --mo-call <uri> [--call-duration N] [--hold] [--dtmf D]
+siclient --profile <path> --emergency-call [uri]
+siclient --profile <path> --send-sms <dest> <text>
+siclient --profile <path> [--fetch-call-forwarding | --set-call-forwarding <target>]
+```
+
+### 14.4 Documentation Artifacts
+
+| Document | Purpose |
+|---|---|
+| `README.md` | Build, test, quick start |
+| `docs/ARCHITECTURE.md` | Module layout |
+| `docs/adr/0001-swift-platform-and-sip-stack.md` | Swift/TLS/IPSec decisions |
+| `docs/integration-guide.md` | Host integration |
+| `docs/api-reference.md` | Public API index |
+| `schema/profile.schema.json` | Profile validation |
+
+---
+
+## 15. Revision History
 
 | Version | Date | Changes |
 |---|---|---|
@@ -801,3 +1025,9 @@ P0 (Foundation)
 | v0.3 | 2026-06-16 | Phase 0 & 1 week-by-week checklists with owners, effort estimates, and exit gates |
 | v0.4 | 2026-06-16 | Phase 0 implemented in Swift 6 for macOS Tahoe; checklists marked complete |
 | v0.5 | 2026-06-16 | Phase 1: SIP stack, registration FSM, transport, SIPp scenarios; 23 tests passing |
+| v0.6 | 2026-06-16 | Phase 2: sessions, preconditions, MO/MT, SIPp MO/MT; 31 tests |
+| v0.7 | 2026-06-16 | Phase 3 in progress: RTP/RTCP, media session |
+| v0.8 | 2026-06-16 | Phase 3 complete: UDP RTP, hold/resume, ViLTE SDP stub |
+| v0.9 | 2026-06-16 | Phase 4 complete: resilience, transport hardening, acceptance CI, docs |
+| v1.0 | 2026-06-16 | Phase 5 complete: emergency, SMS, XCAP, handover hooks, EVS premium; 60 tests |
+| v1.1 | 2026-06-18 | Honest fidelity model (§0.3–0.4); split lab/production acceptance (§8); Phase 6 roadmap (§14); profile schema sync |
