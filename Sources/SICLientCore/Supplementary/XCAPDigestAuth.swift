@@ -1,5 +1,5 @@
 import Foundation
-import CommonCrypto
+import CryptoKit
 
 // MARK: - File Overview
 // HTTP Digest authentication for XCAP (XML Configuration Access Protocol) requests.
@@ -35,13 +35,9 @@ public enum XCAPDigestAuth {
     }
 
     private static func md5(_ input: String) -> String {
-        // codeql[swift/weak-cryptography]: HTTP Digest (RFC 2617) requires MD5 for XCAP auth headers.
-        let data = Data(input.utf8)
-        var hash = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
-        data.withUnsafeBytes { buffer in
-            _ = CC_MD5(buffer.baseAddress, CC_LONG(buffer.count), &hash)
-        }
-        return hash.map { String(format: "%02x", $0) }.joined()
+        // HTTP Digest (RFC 2617) requires MD5 for XCAP auth headers — not a general-purpose hash choice.
+        let digest = Insecure.MD5.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
 
